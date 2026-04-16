@@ -1,0 +1,102 @@
+import type { GameStatus } from '../game/loop';
+
+interface Props {
+  status: GameStatus;
+}
+
+const overlay: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  pointerEvents: 'none',
+  fontFamily: "'Segoe UI', system-ui, sans-serif",
+  color: '#fff',
+  textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+};
+
+const big: React.CSSProperties = {
+  fontSize: 'clamp(2rem, 6vw, 4rem)',
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+};
+
+const sub: React.CSSProperties = {
+  fontSize: 'clamp(1rem, 3vw, 1.6rem)',
+  marginTop: '0.5rem',
+  opacity: 0.9,
+};
+
+const hint: React.CSSProperties = {
+  position: 'fixed',
+  bottom: '2rem',
+  left: 0,
+  right: 0,
+  textAlign: 'center',
+  fontSize: 'clamp(0.8rem, 2vw, 1rem)',
+  opacity: 0.7,
+  pointerEvents: 'none',
+  color: '#fff',
+  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+};
+
+const scoreHud: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.5rem',
+  left: 0,
+  right: 0,
+  textAlign: 'center',
+  fontSize: 'clamp(1rem, 2.5vw, 1.4rem)',
+  pointerEvents: 'none',
+  color: '#fff',
+  textShadow: '0 1px 6px rgba(0,0,0,0.8)',
+};
+
+export default function HUD({ status }: Props) {
+  const { phase, timeToWave, rideTime } = status;
+
+  if (phase === 'approach') {
+    return (
+      <>
+        <div style={overlay}>
+          <div style={big}>Wave incoming</div>
+          <div style={sub}>{timeToWave.toFixed(1)} s</div>
+        </div>
+        <div style={hint}>← A / D → to steer</div>
+      </>
+    );
+  }
+
+  if (phase === 'riding') {
+    return (
+      <div style={scoreHud}>
+        {rideTime.toFixed(1)} s
+      </div>
+    );
+  }
+
+  if (phase === 'wiped_out') {
+    return (
+      <div style={overlay}>
+        <div style={big}>WIPEOUT!</div>
+        <div style={sub}>Rode {rideTime.toFixed(1)} seconds</div>
+        <div style={{ ...sub, marginTop: '1.5rem', opacity: 0.6 }}>
+          Refresh to try again
+        </div>
+      </div>
+    );
+  }
+
+  // finished
+  return (
+    <div style={overlay}>
+      <div style={big}>GREAT RIDE!</div>
+      <div style={sub}>Rode {rideTime.toFixed(1)} seconds</div>
+      <div style={{ ...sub, marginTop: '1.5rem', opacity: 0.6 }}>
+        Refresh to try again
+      </div>
+    </div>
+  );
+}
