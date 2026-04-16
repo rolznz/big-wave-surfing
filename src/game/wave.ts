@@ -1,19 +1,39 @@
 import * as THREE from 'three';
 import {
-  WAVE_AMP, WAVE_SPEED, OCEAN_W, OCEAN_D,
+  WAVE_AMP, WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
+  WAVE_X_DECAY, WAVE_X_SIGMA_SCALE,
+  WAVE_SPEED, OCEAN_W, OCEAN_D,
   OCEAN_SEG_X, OCEAN_SEG_Z, OCEAN_MESH_OFFSET_Z,
 } from './constants';
 
 // ─── Wave profile ────────────────────────────────────────────────────────────
 
 /**
- * Returns wave height at a given world-Z position.
- * Asymmetric Gaussian: steep face (+Z side), gentle back (-Z side).
+ * Wave height at (worldZ, worldX).
+ * - Z profile: asymmetric Gaussian centred at waveZ (steep front, gentle back).
+ * - X profile: amplitude decays exponentially away from breakX toward +X;
+ *   the back-slope sigma also widens, making the wave gentler and deeper
+ *   further from the breaking section.
  */
-export function waveHeightAt(worldZ: number, waveZ: number): number {
+export function waveHeightAt(
+  worldZ: number,
+  waveZ: number,
+  worldX = 0,
+  breakX = 0,
+): number {
   const rel = worldZ - waveZ;
-  const sigma = rel >= 0 ? 1.8 : 5.0;
-  return WAVE_AMP * Math.exp(-(rel * rel) / (2 * sigma * sigma));
+
+  // Distance ahead of the break front (0 on the foam/broken side)
+  const xDist = Math.max(0, worldX - breakX);
+
+  // Amplitude falls off away from the break
+  const amp = WAVE_AMP * Math.exp(-xDist / WAVE_X_DECAY);
+
+  // Back-slope widens further from the break (gentler, deeper swell)
+  const sigmaBack = WAVE_SIGMA_BACK + xDist / WAVE_X_SIGMA_SCALE;
+  const sigma = rel >= 0 ? WAVE_SIGMA_FRONT : sigmaBack;
+
+  return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
 }
 
 // ─── Vertex colour helpers ────────────────────────────────────────────────────
@@ -39,7 +59,6 @@ function vertexColor(height: number, foam: number, out: THREE.Color): void {
 
 export class WaveOcean {
   readonly mesh: THREE.Mesh;
-  readonly curlMesh: THREE.Mesh;
 
   /** Current world-Z position of the wave crest. */
   waveZ: number;
@@ -47,14 +66,12 @@ export class WaveOcean {
   private readonly geo: THREE.BufferGeometry;
   private readonly posAttr: THREE.BufferAttribute;
   private readonly colAttr: THREE.BufferAttribute;
-  private readonly curlOrigHalfLen: number;
 
   constructor(scene: THREE.Scene, startZ: number) {
     this.waveZ = startZ;
 
-    // ── Ocean plane ──────────────────────────────────────────────────────────
-    // PlaneGeometry in XY; bake a -90° X rotation so attributes are in world
-    // space: getX→worldX, getZ→worldZ, getY→height (initially 0).
+    // PlaneGeometry in XY; bake a -90° X rotation so buffer attributes are in
+    // world space: getX→worldX, getZ→worldZ, getY→height.
     this.geo = new THREE.PlaneGeometry(OCEAN_W, OCEAN_D, OCEAN_SEG_X, OCEAN_SEG_Z);
     this.geo.rotateX(-Math.PI / 2);
 
@@ -70,44 +87,38 @@ export class WaveOcean {
       shininess: 120,
     });
     this.mesh = new THREE.Mesh(this.geo, mat);
-    // Offset mesh so geometry covers world Z ≈ [-56, +36]
-    this.mesh.position.z = OCEAN_MESH_OFFSET_Z;
+    this.mesh.position.z = startZ + OCEAN_MESH_OFFSET_Z;
     this.mesh.receiveShadow = true;
     scene.add(this.mesh);
-
-    // ── Curl cylinder (breaking lip) ─────────────────────────────────────────
-    // Cylinder's length axis = local Y; after rotation.z = PI/2, length maps to -X.
-    this.curlOrigHalfLen = OCEAN_W / 2;
-    const curlGeo = new THREE.CylinderGeometry(0.55, 0.85, OCEAN_W, 10, 1);
-    const curlMat = new THREE.MeshPhongMaterial({
-      color: 0xddf5ff,
-      opacity: 0.92,
-      transparent: true,
-    });
-    this.curlMesh = new THREE.Mesh(curlGeo, curlMat);
-    this.curlMesh.rotation.z = Math.PI / 2;
-    this.curlMesh.castShadow = true;
-    scene.add(this.curlMesh);
   }
 
-  update(dt: number, breakX: number): void {
+  /**
+   * Advance the wave and recompute the mesh.
+   * surferZ is used to keep the mesh centred on the player so the ocean never
+   * runs out, while the wave crest travels independently — giving the visual
+   * of a wave moving through calm water.
+   */
+  update(dt: number, breakX: number, surferZ: number): void {
     this.waveZ += WAVE_SPEED * dt;
+
+    // Mesh follows the surfer, not the wave crest — the wave shape appears to
+    // move through the stationary-looking water around the player.
+    this.mesh.position.z = surferZ + OCEAN_MESH_OFFSET_Z;
 
     const posAttr = this.posAttr;
     const colAttr = this.colAttr;
-    const meshOffZ = OCEAN_MESH_OFFSET_Z;
-    const waveZ = this.waveZ;
+    const waveZ   = this.waveZ;
+    const meshPosZ = this.mesh.position.z;
 
     for (let i = 0; i < posAttr.count; i++) {
       const wx = posAttr.getX(i);
-      // After baked rotateX, getZ gives local-Z = world-Z minus mesh offset
-      const wz = posAttr.getZ(i) + meshOffZ;
+      const wz = posAttr.getZ(i) + meshPosZ;
 
-      // Foam factor: 0 = clean water, 1 = full whitewater
+      // Foam: full whitewater to the left of breakX, clean face to the right
       const foamDist = breakX - wx;
       const foam = Math.max(0, Math.min(1, foamDist / 4));
 
-      const h = waveHeightAt(wz, waveZ) * (1 - foam * 0.55);
+      const h = waveHeightAt(wz, waveZ, wx, breakX) * (1 - foam * 0.55);
       posAttr.setY(i, h);
 
       vertexColor(h, foam, _tmp);
@@ -117,21 +128,10 @@ export class WaveOcean {
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
     this.geo.computeVertexNormals();
-
-    // ── Reposition curl to span the unbroken section of the crest ────────────
-    const rightEdge = OCEAN_W / 2;
-    const unbrokenWidth = Math.max(0.5, rightEdge - breakX);
-    const curlScaleY = unbrokenWidth / (this.curlOrigHalfLen * 2);
-    const curlCenterX = breakX + unbrokenWidth / 2;
-
-    this.curlMesh.scale.y = curlScaleY;
-    this.curlMesh.position.set(curlCenterX, WAVE_AMP + 0.45, waveZ + 0.6);
   }
 
   dispose(): void {
     this.geo.dispose();
     (this.mesh.material as THREE.Material).dispose();
-    (this.curlMesh.geometry as THREE.BufferGeometry).dispose();
-    (this.curlMesh.material as THREE.Material).dispose();
   }
 }

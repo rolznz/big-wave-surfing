@@ -54,45 +54,28 @@ const scoreHud: React.CSSProperties = {
   textShadow: '0 1px 6px rgba(0,0,0,0.8)',
 };
 
-export default function HUD({ status }: Props) {
-  const { phase, timeToWave, rideTime } = status;
+// 1 game unit ≈ 0.3 m  (wave height 50 u ≈ 15 m real-world big wave)
+const UNITS_TO_MS = 0.3;
 
-  if (phase === 'approach') {
+export default function HUD({ status }: Props) {
+  const { phase, rideTime, speed } = status;
+  const speedMs = (speed * UNITS_TO_MS).toFixed(1);
+
+  if (phase === 'surfing') {
     return (
       <>
-        <div style={overlay}>
-          <div style={big}>Wave incoming</div>
-          <div style={sub}>{timeToWave.toFixed(1)} s</div>
+        <div style={scoreHud}>
+          {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s
         </div>
-        <div style={hint}>← A / D → to steer</div>
+        <div style={hint}>↑ Paddle  ↓ Brake  ← → Steer</div>
       </>
     );
   }
 
-  if (phase === 'riding') {
-    return (
-      <div style={scoreHud}>
-        {rideTime.toFixed(1)} s
-      </div>
-    );
-  }
-
-  if (phase === 'wiped_out') {
-    return (
-      <div style={overlay}>
-        <div style={big}>WIPEOUT!</div>
-        <div style={sub}>Rode {rideTime.toFixed(1)} seconds</div>
-        <div style={{ ...sub, marginTop: '1.5rem', opacity: 0.6 }}>
-          Refresh to try again
-        </div>
-      </div>
-    );
-  }
-
-  // finished
+  // wiped_out
   return (
     <div style={overlay}>
-      <div style={big}>GREAT RIDE!</div>
+      <div style={big}>WIPEOUT!</div>
       <div style={sub}>Rode {rideTime.toFixed(1)} seconds</div>
       <div style={{ ...sub, marginTop: '1.5rem', opacity: 0.6 }}>
         Refresh to try again

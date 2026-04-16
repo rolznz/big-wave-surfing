@@ -4,9 +4,9 @@ import { createLoop, GameStatus } from '../game/loop';
 import HUD from './HUD';
 
 const INITIAL_STATUS: GameStatus = {
-  phase: 'approach',
-  timeToWave: 5,
+  phase: 'surfing',
   rideTime: 0,
+  speed: 0,
 };
 
 export default function Game() {
