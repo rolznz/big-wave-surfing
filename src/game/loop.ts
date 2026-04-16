@@ -6,13 +6,16 @@ import {
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
   SURFER_START_X, SURFER_START_Z, SURFER_X_LIMIT,
   PADDLE_THRUST, WATER_DRAG, BRAKE_DRAG, TURN_SPEED, WAVE_PUSH_FACTOR,
+  FIN_GRIP_BASE, FIN_GRIP_TURNING,
 } from './constants';
 
 // ─── Wake trail constants ──────────────────────────────────────────────────────
-const TRAIL_DURATION   = 5.0;   // seconds before a slice fades out
-const TRAIL_SEGMENTS   = 120;   // max slices kept
-const TRAIL_MAX_SPEED  = 15;    // speed at which trail reaches full width/brightness
-const TRAIL_HALF_WIDTH = 2.5;   // half-width of ribbon at full speed
+const TRAIL_DURATION    = 5.0;  // seconds before a slice fades out
+const TRAIL_SEGMENTS    = 150;  // max slices kept (covers longest reasonable trail)
+const TRAIL_MAX_SPEED   = 15;   // speed (units/s) at which trail reaches full width/brightness
+const TRAIL_HALF_WIDTH  = 0.5;  // half-width of ribbon at full speed
+const TRAIL_SLICE_DIST  = 0.6;  // emit a new slice every N world units traveled
+                                 // (distance-based so a stationary board emits nothing — no pile-up)
 
 interface TrailSlice {
   x: number; z: number;
@@ -48,6 +51,8 @@ export function createLoop(
   const surferMat = new THREE.MeshPhongMaterial({ color: 0xff4500 });
   const surfer = new THREE.Mesh(surferGeo, surferMat);
   surfer.castShadow = true;
+  surfer.renderOrder = 2;
+  surfer.frustumCulled = false;
   scene.add(surfer);
   surfer.position.set(SURFER_START_X, 0.2, SURFER_START_Z);
 
@@ -73,7 +78,7 @@ export function createLoop(
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
-    transparent: true,
+    transparent: false,  // keep in opaque queue so renderOrder correctly draws board over trail
   });
   const trailMesh = new THREE.Mesh(trailGeo, trailMat);
   trailMesh.renderOrder = 1;
@@ -81,8 +86,8 @@ export function createLoop(
   scene.add(trailMesh);
 
   const trailSlices: TrailSlice[] = [];
-  let lastSliceTime = -Infinity;
-  const SLICE_INTERVAL = TRAIL_DURATION / TRAIL_SEGMENTS;
+  let lastSliceX = SURFER_START_X;
+  let lastSliceZ = SURFER_START_Z;
 
   // ── State ─────────────────────────────────────────────────────────────────
   let phase: GamePhase = 'surfing';
@@ -90,15 +95,15 @@ export function createLoop(
   let surferZ   = SURFER_START_Z;
   let surferVX  = 0;
   let surferVZ  = 0;
-  let surferAngle = 0;   // 0 = facing -Z (toward incoming wave)
+  let surferAngle = Math.PI;   // 0 = facing -Z (toward wave); π = facing +Z (toward camera/shore)
   let breakX    = BREAK_START_X;
   let rideTime  = 0;
 
   const input = { left: false, right: false, up: false, down: false };
 
-  // Camera smooth targets
-  const camTarget     = new THREE.Vector3(0, 5, 11);
-  const camLookTarget = new THREE.Vector3(0, 1, -5);
+  // Camera smooth targets — initialised to match spawn position so there's no pan on start
+  const camTarget     = new THREE.Vector3(SURFER_START_X, 5, SURFER_START_Z + 14);
+  const camLookTarget = new THREE.Vector3(SURFER_START_X, 1, SURFER_START_Z - 15);
   camera.position.copy(camTarget);
   camera.lookAt(camLookTarget);
 
@@ -132,7 +137,8 @@ export function createLoop(
     current.z += (target.z - current.z) * alpha;
   }
 
-  const _lookAt = new THREE.Vector3();
+  const _lookAt   = new THREE.Vector3();
+  const _boardMat = new THREE.Matrix4();
 
   // ── Tick ──────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
@@ -181,7 +187,29 @@ export function createLoop(
       surferVX += fwdX * waveDrive * dt;
       surferVZ += fwdZ * waveDrive * dt;
 
-      // 5. Drag (water resistance, higher when braking)
+      // 5. Fin constraint — bleed off lateral (perpendicular-to-heading) velocity.
+      //    Two components:
+      //      a) Passive grip (FIN_GRIP_BASE): fins always resist sideways drift,
+      //         keeping the board tracking along its heading even when not turning.
+      //         Set FIN_GRIP_BASE = 0 to disable.
+      //      b) Turn waste (FIN_GRIP_TURNING): extra bleed while actively turning;
+      //         a hard snap turn sheds more speed than a gentle carve.
+      //         Set FIN_GRIP_TURNING = 0 to disable.
+      {
+        const vDotFwd = surferVX * fwdX + surferVZ * fwdZ;
+        const vLatX   = surferVX - vDotFwd * fwdX;
+        const vLatZ   = surferVZ - vDotFwd * fwdZ;
+        const latSpeed = Math.hypot(vLatX, vLatZ);
+        if (latSpeed > 0) {
+          const turning = (input.left || input.right) ? 1 : 0;
+          const gripRate = FIN_GRIP_BASE + turning * FIN_GRIP_TURNING;
+          const bleed = Math.min(latSpeed, gripRate * dt);
+          surferVX -= (vLatX / latSpeed) * bleed;
+          surferVZ -= (vLatZ / latSpeed) * bleed;
+        }
+      }
+
+      // 6. Drag (water resistance, higher when braking)
       const drag = input.down ? WATER_DRAG + BRAKE_DRAG : WATER_DRAG;
       const speed = Math.hypot(surferVX, surferVZ);
       if (speed > 0) {
@@ -190,56 +218,87 @@ export function createLoop(
         surferVZ -= (surferVZ / speed) * decel;
       }
 
-      // 6. Integrate position
+      // 7. Integrate position
       surferX += surferVX * dt;
       surferZ += surferVZ * dt;
 
-      // 7. Clamp X to ocean width
+      // 8. Clamp X to ocean width
       surferX = Math.max(-SURFER_X_LIMIT, Math.min(SURFER_X_LIMIT, surferX));
 
-      // 8. Y from wave surface
-      const surferY = waveHeightAt(surferZ, wave.waveZ, surferX, breakX) + 0.2;
-      surfer.position.set(surferX, surferY, surferZ);
+      // 9. Position: offset along surface normal so board corners stay above surface
+      //    even on steep slopes (flat world-Y offset causes corners to dip into the wave).
+      {
+        const nrmLen = Math.sqrt(gradX*gradX + 1 + gradZ*gradZ);
+        const nX = -gradX / nrmLen, nY = 1 / nrmLen, nZ = -gradZ / nrmLen;
+        const waveH = waveHeightAt(surferZ, wave.waveZ, surferX, breakX);
+        const lift = 0.2; // clearance along surface normal
+        surfer.position.set(surferX + nX * lift, waveH + nY * lift, surferZ + nZ * lift);
+      }
+      const surferY = surfer.position.y; // used for camera target below
 
-      // 9. Board orientation: long axis (X) points in heading direction
-      const slopeDz = (waveHeightAt(surferZ + 0.4, wave.waveZ, surferX, breakX)
-                     - waveHeightAt(surferZ - 0.4, wave.waveZ, surferX, breakX)) / 0.8;
-      surfer.rotation.set(-Math.atan2(slopeDz, 1), Math.PI / 2 - surferAngle, 0, 'YXZ');
+      // 10. Board orientation: align with wave surface and heading.
+      //     Reuse gradX/gradZ from wave-drive step — same derivatives, no extra samples.
+      //     Surface normal: n = normalize(-gradX, 1, -gradZ)
+      //     Forward tangent: heading vector lifted onto the surface (t · n = 0 by construction)
+      //     Right vector: r = t × n (unit length because t ⊥ n)
+      //     Build rotation matrix with columns [fwd, up, right] → extract quaternion.
+      {
+        const nrmLen = Math.sqrt(gradX*gradX + 1 + gradZ*gradZ);
+        const nX = -gradX / nrmLen,  nY = 1 / nrmLen,  nZ = -gradZ / nrmLen;
 
-      // 10. Break front advances left→right, looping when it crosses the ocean
+        const slopeY = gradX * fwdX + gradZ * fwdZ;   // height gained per unit heading travel
+        const tLen   = Math.sqrt(fwdX*fwdX + slopeY*slopeY + fwdZ*fwdZ);
+        const tX = fwdX / tLen,  tY = slopeY / tLen,  tZ = fwdZ / tLen;
+
+        const rX = tY*nZ - tZ*nY;
+        const rY = tZ*nX - tX*nZ;
+        const rZ = tX*nY - tY*nX;
+
+        // Row-major: each row is the world-space component of that world axis.
+        // Columns are local-X (fwd), local-Y (up), local-Z (right) in world coords.
+        _boardMat.set(
+          tX, nX, rX, 0,
+          tY, nY, rY, 0,
+          tZ, nZ, rZ, 0,
+          0,  0,  0,  1,
+        );
+        surfer.quaternion.setFromRotationMatrix(_boardMat);
+      }
+
+      // 11. Break front advances left→right, looping when it crosses the ocean
       const breakRange = SURFER_X_LIMIT - BREAK_START_X;
       breakX = BREAK_START_X + (BREAK_SPEED * rideTime) % breakRange;
 
-      // 11. Wave update — mesh follows surfer so ocean never runs out
+      // 12. Wave update — mesh follows surfer so ocean never runs out
       wave.update(dt, breakX, surferZ);
 
-      // 12. Wipeout — only when actually on the wave face
+      // 13. Wipeout — only when actually on the wave face
       const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX);
       if (waveHere > WIPEOUT_HEIGHT && breakX > surferX + WIPEOUT_GRACE) {
         phase = 'wiped_out';
       }
 
-      // 13. Wake trail — emit a new slice when enough time has passed
-      const now = clock.elapsedTime;
-      if (now - lastSliceTime >= SLICE_INTERVAL) {
+      // 14. Wake trail — emit a slice every TRAIL_SLICE_DIST units traveled.
+      //     Distance-based emission: stationary board emits nothing, so no additive pile-up.
+      const distMoved = Math.hypot(surferX - lastSliceX, surferZ - lastSliceZ);
+      if (distMoved >= TRAIL_SLICE_DIST) {
         const spd = Math.hypot(surferVX, surferVZ);
         const t01 = Math.min(1, spd / TRAIL_MAX_SPEED);
-        if (t01 > 0.01) {
-          const perpX = -fwdZ;
-          const perpZ =  fwdX;
-          trailSlices.push({
-            x: surferX, z: surferZ,
-            perpX, perpZ,
-            halfW: t01 * TRAIL_HALF_WIDTH,
-            brightness: t01,
-            t: now,
-          });
-          if (trailSlices.length > TRAIL_SEGMENTS) trailSlices.shift();
-        }
-        lastSliceTime = now;
+        const perpX = -fwdZ;
+        const perpZ =  fwdX;
+        trailSlices.push({
+          x: surferX, z: surferZ,
+          perpX, perpZ,
+          halfW: t01 * TRAIL_HALF_WIDTH,
+          brightness: t01 * 0.7,
+          t: clock.elapsedTime,
+        });
+        if (trailSlices.length > TRAIL_SEGMENTS) trailSlices.shift();
+        lastSliceX = surferX;
+        lastSliceZ = surferZ;
       }
 
-      // 14. Camera: fixed on shore side (+Z), always looking toward the wave
+      // 15. Camera: fixed on shore side (+Z), always looking toward the wave
       camTarget.set(surferX, surferY + 10, surferZ + 24);
       camLookTarget.set(surferX, surferY + 1, surferZ - 15);
 

@@ -21,13 +21,15 @@ export const OCEAN_SEG_Z       = 300;
 export const OCEAN_MESH_OFFSET_Z = -150; // mesh lags behind surfer by this amount in Z
 
 // Surfer
-export const SURFER_START_X  = 0;
+export const SURFER_START_X  = -150;
 export const SURFER_START_Z  = 2;
 export const SURFER_X_LIMIT  = 240;   // hard X clamp (ocean half-width − margin)
 
 // Paddle physics
-export const PADDLE_THRUST    = 11;
-export const WATER_DRAG       = 10.0;
+export const PADDLE_THRUST    = 20;
+export const WATER_DRAG       = 3.0;
 export const BRAKE_DRAG       = 10.0;
-export const TURN_SPEED       = 1.8;
+export const TURN_SPEED       = 3; // TODO: difference paddling vs standing
 export const WAVE_PUSH_FACTOR = 5;
+export const FIN_GRIP_BASE    = 4.0;  // lateral bleed rate (units/s²) always active — set to 0 to disable passive grip
+export const FIN_GRIP_TURNING = 12.0; // extra lateral bleed rate while left/right held — set to 0 to disable turn-speed waste

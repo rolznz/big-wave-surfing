@@ -85,6 +85,9 @@ export class WaveOcean {
       vertexColors: true,
       specular: new THREE.Color(0x99eeff),
       shininess: 120,
+      polygonOffset: true,       // push wave back in depth buffer so board is never
+      polygonOffsetFactor: 1,    // hidden by mesh interpolation sitting above waveHeightAt
+      polygonOffsetUnits: 1,
     });
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.position.z = startZ + OCEAN_MESH_OFFSET_Z;
