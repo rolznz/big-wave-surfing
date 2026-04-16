@@ -31,5 +31,5 @@ export const WATER_DRAG       = 3.0;
 export const BRAKE_DRAG       = 10.0;
 export const TURN_SPEED       = 3; // TODO: difference paddling vs standing
 export const WAVE_PUSH_FACTOR = 5;
-export const FIN_GRIP_BASE    = 4.0;  // lateral bleed rate (units/s²) always active — set to 0 to disable passive grip
-export const FIN_GRIP_TURNING = 12.0; // extra lateral bleed rate while left/right held — set to 0 to disable turn-speed waste
+export const FIN_GRIP_BASE    = 4;//4.0;  // lateral bleed rate (units/s²) always active — set to 0 to disable passive grip
+export const FIN_GRIP_TURNING = 50;//12.0; // extra lateral bleed rate while left/right held — set to 0 to disable turn-speed waste
