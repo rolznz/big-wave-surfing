@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CAMERA } from './constants';
 
 export interface BaseScene {
   renderer: THREE.WebGLRenderer;
@@ -13,28 +14,30 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.007);
+  scene.fog = new THREE.FogExp2(0x87ceeb, 0.005);
 
   const camera = new THREE.PerspectiveCamera(
-    70,
+    CAMERA.FOV,
     window.innerWidth / window.innerHeight,
-    0.1,
-    200,
+    CAMERA.NEAR,
+    CAMERA.FAR,
   );
 
-  // Sun
-  const sun = new THREE.DirectionalLight(0xfff5cc, 2.0);
+  // Sun — softer directional so the wave color can breathe.
+  const sun = new THREE.DirectionalLight(0xfff5cc, 0.9);
   sun.position.set(15, 40, 20);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   scene.add(sun);
 
   // Fill / sky light
-  scene.add(new THREE.AmbientLight(0x88bbff, 0.7));
-  const fillLight = new THREE.DirectionalLight(0xaaddff, 0.4);
+  scene.add(new THREE.AmbientLight(0x88bbff, 0.85));
+  const fillLight = new THREE.DirectionalLight(0xaaddff, 0.1);
   fillLight.position.set(-20, 10, -10);
   scene.add(fillLight);
 

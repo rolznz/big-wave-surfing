@@ -5,6 +5,7 @@ import HUD from './HUD';
 
 const INITIAL_STATUS: GameStatus = {
   phase: 'surfing',
+  stance: 'prone',
   rideTime: 0,
   speed: 0,
 };

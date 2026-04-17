@@ -58,16 +58,18 @@ const scoreHud: React.CSSProperties = {
 const UNITS_TO_MS = 0.3;
 
 export default function HUD({ status }: Props) {
-  const { phase, rideTime, speed } = status;
+  const { phase, stance, rideTime, speed } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
 
   if (phase === 'surfing') {
     return (
       <>
         <div style={scoreHud}>
-          {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s
+          {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s &nbsp;·&nbsp; {stance === 'prone' ? 'PRONE' : 'STANDING'}
         </div>
-        <div style={hint}>↑ Paddle  ↓ Brake  ← → Steer</div>
+        <div style={hint}>
+          {stance === 'prone' ? '↑ Paddle  ↓ Brake  ← → Steer  ␣ Stand up' : '↓ Brake  ← → Carve  ␣ Go prone'}
+        </div>
       </>
     );
   }
