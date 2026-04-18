@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAMERA } from './constants';
+import { CAMERA_LENS } from './constants';
 
 export interface BaseScene {
   renderer: THREE.WebGLRenderer;
@@ -22,10 +22,10 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   scene.fog = new THREE.FogExp2(0x87ceeb, 0.005);
 
   const camera = new THREE.PerspectiveCamera(
-    CAMERA.FOV,
+    CAMERA_LENS.FOV,
     window.innerWidth / window.innerHeight,
-    CAMERA.NEAR,
-    CAMERA.FAR,
+    CAMERA_LENS.NEAR,
+    CAMERA_LENS.FAR,
   );
 
   // Sun — softer directional so the wave color can breathe.

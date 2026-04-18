@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createScene } from '../game/createScene';
 import { createLoop, GameStatus } from '../game/loop';
 import HUD from './HUD';
@@ -6,12 +6,14 @@ import HUD from './HUD';
 const INITIAL_STATUS: GameStatus = {
   phase: 'surfing',
   stance: 'prone',
+  cameraMode: 'fixed',
   rideTime: 0,
   speed: 0,
 };
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cycleCameraRef = useRef<() => void>(() => {});
   const [status, setStatus] = useState<GameStatus>(INITIAL_STATUS);
 
   useEffect(() => {
@@ -19,13 +21,16 @@ export default function Game() {
     if (!canvas) return;
 
     const bs = createScene(canvas);
-    const stop = createLoop(bs, setStatus);
+    const loop = createLoop(bs, setStatus);
+    cycleCameraRef.current = loop.cycleCameraMode;
 
     return () => {
-      stop();
+      loop.stop();
       bs.dispose();
     };
   }, []);
+
+  const onCycleCamera = useCallback(() => cycleCameraRef.current(), []);
 
   return (
     <>
@@ -33,7 +38,7 @@ export default function Game() {
         ref={canvasRef}
         style={{ display: 'block', width: '100vw', height: '100vh' }}
       />
-      <HUD status={status} />
+      <HUD status={status} onCycleCamera={onCycleCamera} />
     </>
   );
 }

@@ -12,19 +12,28 @@ import {
   BOARD_LIFT, TRAIL_LIFT,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
-  CAMERA,
+  CAMERA_FIXED, CAMERA_CHASE,
 } from './constants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type GamePhase = 'surfing' | 'wiped_out';
-export type Stance    = 'prone' | 'standing';
+export type GamePhase  = 'surfing' | 'wiped_out';
+export type Stance     = 'prone' | 'standing';
+export type CameraMode = 'fixed' | 'chase';
+
+export const CAMERA_MODES: readonly CameraMode[] = ['fixed', 'chase'] as const;
 
 export interface GameStatus {
   phase: GamePhase;
   stance: Stance;
+  cameraMode: CameraMode;
   rideTime: number;
   speed: number;
+}
+
+export interface LoopHandle {
+  stop: () => void;
+  cycleCameraMode: () => void;
 }
 
 interface TrailSlice {
@@ -40,7 +49,7 @@ interface TrailSlice {
 export function createLoop(
   bs: BaseScene,
   onStatus: (status: GameStatus) => void,
-): () => void {
+): LoopHandle {
   const { renderer, scene, camera } = bs;
 
   // ── World objects ────────────────────────────────────────────────────────
@@ -62,6 +71,7 @@ export function createLoop(
   // ── State ─────────────────────────────────────────────────────────────────
   let phase: GamePhase = 'surfing';
   let stance: Stance = 'prone';
+  let cameraMode: CameraMode = 'fixed';
   let surferX   = SURFER_START_X;
   let surferZ   = SURFER_START_Z;
   let surferVX  = 0;
@@ -73,16 +83,16 @@ export function createLoop(
 
   const input = { left: false, right: false, up: false, down: false };
 
-  // Camera smooth targets
+  // Camera smooth targets — rebuilt each frame in updateCamera().
   const camTarget = new THREE.Vector3(
     SURFER_START_X,
-    5,
-    SURFER_START_Z + CAMERA.DISTANCE_Z,
+    CAMERA_FIXED.HEIGHT,
+    SURFER_START_Z + CAMERA_FIXED.DISTANCE,
   );
   const camLookTarget = new THREE.Vector3(
     SURFER_START_X,
-    1,
-    SURFER_START_Z - CAMERA.LOOK_AHEAD_Z,
+    CAMERA_FIXED.LOOK_UP,
+    SURFER_START_Z - CAMERA_FIXED.LOOK_AHEAD,
   );
   camera.position.copy(camTarget);
   camera.lookAt(camLookTarget);
@@ -128,6 +138,7 @@ export function createLoop(
       e.preventDefault();
       toggleStance();
     }
+    if (e.key === 'c' || e.key === 'C') cycleCameraMode();
   }
   function onKeyUp(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft'  || e.key === 'a') input.left  = false;
@@ -154,6 +165,11 @@ export function createLoop(
     } else {
       stance = 'prone';
     }
+  }
+
+  function cycleCameraMode(): void {
+    const i = CAMERA_MODES.indexOf(cameraMode);
+    cameraMode = CAMERA_MODES[(i + 1) % CAMERA_MODES.length];
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -382,8 +398,42 @@ export function createLoop(
   // ── Update: camera ────────────────────────────────────────────────────────
   function updateCamera(dt: number): void {
     const rigY = rig.position.y;
-    camTarget.set(surferX, rigY + CAMERA.HEIGHT, surferZ + CAMERA.DISTANCE_Z);
-    camLookTarget.set(surferX, rigY + CAMERA.LOOK_UP_Y, surferZ - CAMERA.LOOK_AHEAD_Z);
+
+    if (cameraMode === 'fixed') {
+      // World-axis: always look toward -Z regardless of heading.
+      camTarget.set(
+        surferX,
+        rigY + CAMERA_FIXED.HEIGHT,
+        surferZ + CAMERA_FIXED.DISTANCE,
+      );
+      camLookTarget.set(
+        surferX,
+        rigY + CAMERA_FIXED.LOOK_UP,
+        surferZ - CAMERA_FIXED.LOOK_AHEAD,
+      );
+    } else {
+      // Chase: rotate with surfer heading so we see what's ahead.
+      const fwdX =  Math.sin(surferAngle);
+      const fwdZ = -Math.cos(surferAngle);
+      const camX = surferX - fwdX * CAMERA_CHASE.DISTANCE;
+      const camZ = surferZ - fwdZ * CAMERA_CHASE.DISTANCE;
+
+      // Clamp Y so the camera clears the wave surface at its own XZ and at the
+      // midpoint toward the surfer (prevents the crest from occluding the view).
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX);
+      const midX = (surferX + camX) * 0.5;
+      const midZ = (surferZ + camZ) * 0.5;
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX);
+      const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_CHASE.MIN_CLEARANCE;
+      const camY = Math.max(rigY + CAMERA_CHASE.HEIGHT, minY);
+
+      camTarget.set(camX, camY, camZ);
+      camLookTarget.set(
+        surferX + fwdX * CAMERA_CHASE.LOOK_AHEAD,
+        rigY + CAMERA_CHASE.LOOK_UP,
+        surferZ + fwdZ * CAMERA_CHASE.LOOK_AHEAD,
+      );
+    }
 
     const lerpAlpha = 1 - Math.pow(0.01, dt);
     lerpVec3(camera.position, camTarget, lerpAlpha);
@@ -415,13 +465,13 @@ export function createLoop(
     rebuildTrail(now);
     updateCamera(dt);
 
-    onStatus({ phase, stance, rideTime, speed: Math.hypot(surferVX, surferVZ) });
+    onStatus({ phase, stance, cameraMode, rideTime, speed: Math.hypot(surferVX, surferVZ) });
     renderer.render(scene, camera);
   }
 
   tick();
 
-  return function stop() {
+  function stop() {
     cancelAnimationFrame(rafId);
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
@@ -432,6 +482,8 @@ export function createLoop(
     board.dispose();
     trailGeo.dispose();
     trailMat.dispose();
-  };
+  }
+
+  return { stop, cycleCameraMode };
 }
 

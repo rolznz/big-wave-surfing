@@ -42,7 +42,7 @@ export const PRONE_PHYSICS = {
 // wave drives harder.
 export const STANDING_PHYSICS = {
   PADDLE_THRUST:    0,
-  WATER_DRAG:       3.0,
+  WATER_DRAG:       1.0,
   BRAKE_DRAG:       10.0,
   TURN_SPEED:       3.0,
   WAVE_PUSH_FACTOR: 5,
@@ -65,14 +65,34 @@ export const TRAIL_HALF_WIDTH = 0.5;
 export const TRAIL_SLICE_DIST = 0.6;  // emit a slice every N units traveled
 
 // ─── Camera ──────────────────────────────────────────────────────────────────
-export const CAMERA = {
-  HEIGHT:       10,   // world-Y above surfer
-  DISTANCE_Z:   24,   // behind surfer (+Z)
-  LOOK_AHEAD_Z: 15,   // look this far ahead (-Z) of surfer
-  LOOK_UP_Y:    1,    // look target world-Y above surfer
-  FOV:          70,
-  NEAR:         0.1,
-  FAR:          500,
+// Intrinsics shared by all modes.
+export const CAMERA_LENS = {
+  FOV:  70,
+  NEAR: 0.1,
+  FAR:  500,
+} as const;
+
+// "Fixed" mode: world-axis aligned. Camera sits above/behind the surfer on the
+// +Z side and always looks toward -Z, independent of heading. Reads well for
+// the diagonal "drop" shot.
+export const CAMERA_FIXED = {
+  HEIGHT:     10,   // world-Y above surfer
+  DISTANCE:   24,   // behind surfer on +Z
+  LOOK_AHEAD: 15,   // look this far toward -Z of surfer
+  LOOK_UP:    1,    // look target world-Y above surfer
+} as const;
+
+// "Chase" mode: camera orbits with the surfer's heading so we always see what
+// the surfer is heading into. Tighter + lower for an over-the-shoulder feel.
+// MIN_CLEARANCE keeps the camera above the wave surface (sampled at the camera
+// position and the midpoint toward the surfer) so a crest between camera and
+// surfer never occludes the view.
+export const CAMERA_CHASE = {
+  HEIGHT:        8,
+  DISTANCE:      14,
+  LOOK_AHEAD:    20,
+  LOOK_UP:       1.5,
+  MIN_CLEARANCE: 5,
 } as const;
 
 // ─── Visual effects ──────────────────────────────────────────────────────────

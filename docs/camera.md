@@ -1,0 +1,3 @@
+I want to experiment with the camera. When riding along the wave in image-3.png I want the camera to interpolate to move more behind the player so that we can better see what's coming towards the player. This will enable us to experiment with obstacles in the future. But first we need to get the camera mechanics right.
+
+Let's have a button where we can switch through different camera modes. We'll have the current mode, and a more "behind surfer" mode.
