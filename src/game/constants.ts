@@ -2,8 +2,10 @@
 export const WAVE_AMP           = 50;    // crest height in world units // TODO: customizable wave height
 export const WAVE_SIGMA_FRONT   = 10;    // steepness of front face (smaller = steeper)
 export const WAVE_SIGMA_BACK    = 20.0;  // depth of back slope at the break point
-export const WAVE_X_DECAY       = 200;   // e-fold distance for amplitude away from break
+export const WAVE_X_DECAY       = 200;   // e-fold distance for amplitude on the clean shoulder (right of break)
+export const WAVE_X_BROKEN_DECAY = 80;   // e-fold distance for amplitude on the broken side (left of break) — shorter so whitewater dies down
 export const WAVE_X_SIGMA_SCALE = 60;    // every 60 X-units from break, sigmaBack grows by 1
+export const WAVE_PEAK_AHEAD_X  = 3;     // peak sits this far into the clean side of breakX, so the crest curls ahead of the whitewater
 export const WAVE_SPEED         = 10;    // units/sec toward +Z
 export const WAVE_START_Z       = -100;
 
@@ -99,6 +101,9 @@ export const CAMERA_CHASE = {
 export const FOAM_CHOP_SCALE = 0.6;   // spatial frequency of foam normal noise
 export const FOAM_CHOP_SPEED = 2.0;   // temporal frequency
 export const FOAM_CHOP_STRENGTH = 0.9; // how much the normal is perturbed (0..1)
+// Foam fades with wave height: becomes fully opaque once the local wave is at
+// this fraction of WAVE_AMP, so foam stays on the crest band and not across flat water.
+export const FOAM_HEIGHT_FRAC = 0.35;
 // Foam texture scrolls at this fraction of the wave's apparent speed. <1 makes
 // the wave visibly overtake the foam — conveys that the wave is rolling forward.
 export const FOAM_PARALLAX = 0.1;

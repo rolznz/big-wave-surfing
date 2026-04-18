@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {
   WAVE_AMP, WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
-  WAVE_X_DECAY, WAVE_X_SIGMA_SCALE,
+  WAVE_X_DECAY, WAVE_X_BROKEN_DECAY, WAVE_X_SIGMA_SCALE,
+  WAVE_PEAK_AHEAD_X,
   WAVE_SPEED, BREAK_SPEED, OCEAN_W, OCEAN_D,
   OCEAN_SEG_X, OCEAN_SEG_Z, OCEAN_MESH_OFFSET_Z,
   FOAM_CHOP_SCALE, FOAM_CHOP_SPEED, FOAM_CHOP_STRENGTH,
-  FOAM_PARALLAX,
+  FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
   TRAIL_LIFT,
 } from './constants';
 
@@ -14,8 +15,10 @@ import {
 /**
  * Wave height at (worldZ, worldX).
  * - Z profile: asymmetric Gaussian centred at waveZ (steep front, gentle back).
- * - X profile: amplitude decays exponentially away from breakX toward +X;
- *   the back-slope sigma also widens further from the break.
+ * - X profile: amplitude peaks just ahead of breakX (on the clean side) and
+ *   decays exponentially in both directions — fast on the broken side
+ *   (whitewater loses energy), slow on the clean shoulder. The back-slope
+ *   sigma also widens as we move right along the clean shoulder.
  */
 export function waveHeightAt(
   worldZ: number,
@@ -24,9 +27,13 @@ export function waveHeightAt(
   breakX = 0,
 ): number {
   const rel = worldZ - waveZ;
-  const xDist = Math.max(0, worldX - breakX);
-  const amp = WAVE_AMP * Math.exp(-xDist / WAVE_X_DECAY);
-  const sigmaBack = WAVE_SIGMA_BACK + xDist / WAVE_X_SIGMA_SCALE;
+  const peakX = breakX + WAVE_PEAK_AHEAD_X;
+  const xDistClean  = Math.max(0, worldX - peakX);
+  const xDistBroken = Math.max(0, peakX - worldX);
+  const amp = WAVE_AMP
+    * Math.exp(-xDistClean  / WAVE_X_DECAY)
+    * Math.exp(-xDistBroken / WAVE_X_BROKEN_DECAY);
+  const sigmaBack = WAVE_SIGMA_BACK + xDistClean / WAVE_X_SIGMA_SCALE;
   const sigma = rel >= 0 ? WAVE_SIGMA_FRONT : sigmaBack;
   return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
 }
@@ -197,7 +204,7 @@ export class WaveOcean {
    * The mesh follows the surfer so the ocean never runs out, while the wave
    * crest travels through it.
    */
-  update(dt: number, breakX: number, surferZ: number, surferX: number): void {
+  update(dt: number, breakX: number, surferZ: number, _surferX: number): void {
     this.elapsed += dt;
     this.waveZ += WAVE_SPEED * dt;
 
@@ -211,7 +218,7 @@ export class WaveOcean {
     const worldPerUVy = OCEAN_D / this.foamTex.repeat.y;
     const worldPerUVx = OCEAN_W / this.foamTex.repeat.x;
     this.foamTex.offset.y = mod1(FOAM_PARALLAX * this.waveZ / worldPerUVy - surferZ / worldPerUVy);
-    this.foamTex.offset.x = mod1((BREAK_SPEED * this.elapsed) / worldPerUVx - surferX / worldPerUVx);
+    this.foamTex.offset.x = mod1((BREAK_SPEED * this.elapsed) / worldPerUVx /*- surferX / worldPerUVx*/);
 
     const posAttr = this.posAttr;
     const colAttr = this.colAttr;
@@ -224,13 +231,17 @@ export class WaveOcean {
       const wx = posAttr.getX(i);
       const wz = posAttr.getZ(i) + meshPosZ;
 
-      // Foam: full whitewater to the left of breakX, clean face to the right
-      const foamDist = breakX - wx;
-      const foam = Math.max(0, Math.min(1, foamDist / 4));
-      foamBuf[i] = foam;
-
-      const h = waveHeightAt(wz, waveZ, wx, breakX);// * (1 - foam * 0.55);
+      const h = waveHeightAt(wz, waveZ, wx, breakX);
       posAttr.setY(i, h);
+
+      // Foam: whitewater to the left of breakX, gated by local wave height so
+      // foam only paints on the crest band (not across flat water far from the
+      // wave in Z).
+      const foamDist = breakX - wx;
+      const foamX = Math.max(0, Math.min(1, foamDist / 4));
+      const heightFactor = Math.min(1, h / (WAVE_AMP * FOAM_HEIGHT_FRAC));
+      const foam = foamX * heightFactor;
+      foamBuf[i] = foam;
 
       vertexColor(h, foam, _tmp);
       colAttr.setXYZ(i, _tmp.r, _tmp.g, _tmp.b);
