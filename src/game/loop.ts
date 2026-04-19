@@ -80,7 +80,8 @@ export function createLoop(
   let surferAngle = Math.PI;
   let breakX    = BREAK_START_X;
   let rideTime  = 0;
-  let paddleCycleT = 0;        // seconds of continuous paddling
+  let paddleCycleT = 0;        // seconds of continuous paddling (keeps advancing during wind-down)
+  let paddleRestBlend = 0;     // 0 = fully stroking, 1 = fully at rest pose
 
   const input = { left: false, right: false, up: false, down: false };
 
@@ -212,9 +213,16 @@ export function createLoop(
       surferVX += fwdX * P.PADDLE_THRUST * dt;
       surferVZ += fwdZ * P.PADDLE_THRUST * dt;
       paddleCycleT += dt;
-    } else {
-      // Decay the paddle cycle so arms return to neutral
-      paddleCycleT = Math.max(0, paddleCycleT - dt * 2);
+      paddleRestBlend = 0;
+    } else if (paddleCycleT > 0) {
+      // Keep the stroke advancing forward while blending arms toward the
+      // rest pose — avoids the arms rewinding through the cycle in reverse.
+      paddleCycleT += dt;
+      paddleRestBlend = Math.min(1, paddleRestBlend + dt * 1.5);  // ~0.67s settle
+      if (paddleRestBlend >= 1) {
+        paddleCycleT = 0;
+        paddleRestBlend = 0;
+      }
     }
 
     // 3. Wave drive — gravity along slope, projected onto heading
@@ -310,11 +318,12 @@ export function createLoop(
     if (phase === 'wiped_out') return;    // already wipeout_limp
 
     if (stance === 'prone') {
-      character.blendTo('prone_neutral', 6, dt);
+      // Flatten out while actively paddling; settle into cobra/sphinx rest otherwise.
+      character.blendTo(input.up ? 'prone_paddle_l' : 'prone_neutral', 2, dt);
       if (paddleCycleT > 0) {
         // θ decreases over time so the arm sweeps reach → pull → recover.
         const strokePhase = Math.PI - paddleCycleT * PADDLE_OMEGA;
-        character.setPaddleStroke(strokePhase);
+        character.setPaddleStroke(strokePhase, paddleRestBlend);
       }
     } else {
       // Standing: choose carve pose from lateral velocity

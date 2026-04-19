@@ -61,70 +61,80 @@ interface Pose {
 // sideways, around Z swings it forward/back.
 
 const POSES: { [K in PoseName]: Pose } = {
+  // Regular surfer stance (left foot forward). Root yaws -π/2 about Y so the
+  // body faces rig +Z (perpendicular to travel direction). After that yaw, the
+  // character's lateral hip offset (±Z) maps to the board's nose/tail axis
+  // (±X), which naturally staggers the feet along the board length. Head yaws
+  // back toward rig +X (nose) to look where we're going.
+  // TODO: for goofy stance, flip rootRot.y to +π/2 and mirror the head yaw.
   standing_neutral: {
-    rootRot: [0, 0, 0],
-    rootPos: [-0.1, 0.12, 0],
+    rootRot: [0, -Math.PI / 2, 0],
+    rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [0, 0, -0.15],   // slight forward lean
-      head:   [0, 0, 0.12],    // counter-tilt to look ahead
-      shoulderL: [-0.5, 0, -0.2], // arms slightly out for balance
-      shoulderR: [ 0.5, 0, -0.2],
-      elbowL: [0, 0, -0.5],
-      elbowR: [0, 0, -0.5],
-      hipL: [0.15, 0, -0.15],     // wide stance, slight forward hip tilt
-      hipR: [-0.15, 0, -0.15],
-      kneeL: [0, 0, 0.6],         // knee bend forward
-      kneeR: [0, 0, 0.6],
+      torso:  [-0.15, 0, -0.05],    // slight lean into direction of travel
+      head:   [0, 1.2, -0.05],      // turned to look toward nose (rig +X)
+      shoulderL: [1.2, 0, 0],       // front arm extended out over the nose
+      shoulderR: [-1.2, 0, 0],      // back arm extended out over the tail
+      elbowL: [0, 0, -0.3],
+      elbowR: [0, 0, -0.3],
+      hipL: [0.3, 0, -0.1],         // splayed, wide crouched stance
+      hipR: [-0.3, 0, -0.1],
+      kneeL: [0, 0, 0.9],           // deep athletic knee bend
+      kneeR: [0, 0, 0.9],
     },
   },
+  // Carve poses add a lean about the board's long axis. After the root Y yaw,
+  // rotating the root about its Z axis (Euler applied Z→Y→X) lands a roll in
+  // rig -X / +X terms — positive Z tips the body toward rig -Z (carve_l).
   standing_carve_l: {
-    rootRot: [-0.35, 0, 0],       // lean left (-X roll)
-    rootPos: [-0.1, 0.12, -0.08],
+    rootRot: [0, -Math.PI / 2, 0.35],
+    rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [-0.15, 0.15, -0.2],
-      head:   [-0.1, 0.25, 0.1],
-      shoulderL: [-0.9, 0, -0.1],
-      shoulderR: [ 0.3, 0, -0.5],
-      elbowL: [0, 0, -0.3],
-      elbowR: [0, 0, -0.8],
-      hipL: [0.2, 0, -0.2],
-      hipR: [-0.1, 0, -0.1],
-      kneeL: [0, 0, 0.7],
-      kneeR: [0, 0, 0.5],
+      torso:  [-0.2, 0, -0.08],
+      head:   [0.1, 1.2, -0.05],
+      shoulderL: [1.35, 0, 0.15],   // lead arm reaches up/forward into turn
+      shoulderR: [-1.0, 0, 0.1],
+      elbowL: [0, 0, -0.5],
+      elbowR: [0, 0, -0.2],
+      hipL: [0.4, 0, -0.15],
+      hipR: [-0.2, 0, -0.05],       // asymmetric compression — front knee drives
+      kneeL: [0, 0, 1.0],
+      kneeR: [0, 0, 0.8],
     },
   },
   standing_carve_r: {
-    rootRot: [0.35, 0, 0],
-    rootPos: [-0.1, 0.12, 0.08],
+    rootRot: [0, -Math.PI / 2, -0.35],
+    rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [0.15, -0.15, -0.2],
-      head:   [0.1, -0.25, 0.1],
-      shoulderL: [-0.3, 0, -0.5],
-      shoulderR: [ 0.9, 0, -0.1],
-      elbowL: [0, 0, -0.8],
-      elbowR: [0, 0, -0.3],
-      hipL: [0.1, 0, -0.1],
-      hipR: [-0.2, 0, -0.2],
-      kneeL: [0, 0, 0.5],
-      kneeR: [0, 0, 0.7],
+      torso:  [-0.1, 0, -0.08],
+      head:   [-0.1, 1.2, -0.05],
+      shoulderL: [1.0, 0, 0.1],
+      shoulderR: [-1.35, 0, 0.15],  // trailing arm sweeps out as body opens
+      elbowL: [0, 0, -0.2],
+      elbowR: [0, 0, -0.5],
+      hipL: [0.2, 0, -0.05],
+      hipR: [-0.4, 0, -0.15],
+      kneeL: [0, 0, 0.8],
+      kneeR: [0, 0, 1.0],
     },
   },
+  // Resting on the board between paddles: hips on deck, chest pitched up on
+  // bent elbows (sphinx/cobra), head looking over the nose. Torso Z tilts the
+  // chest up off the deck; shoulder Z (~π/2 − torso_z) drops the upper arm
+  // straight down so the elbow lands near the deck, and elbow Z ≈ π/2 then
+  // rotates the forearm forward so the hands come to rest near the nose.
   prone_neutral: {
     // Rotate root so head (+Y in character frame) points forward (+X in rig frame).
     rootRot: [0, 0, -Math.PI / 2],
-    // Pelvis centered on board, belly grazing the deck.
     rootPos: [0, 0.18, 0],
     joints: {
       pelvis: [0, 0, 0],
-      torso:  [0, 0, 0.05],
-      head:   [0, 0, -0.4],        // head lifted to look forward
-      // Shoulder Z = π rotates the arm from "hanging down (char -Y)" to
-      // "pointing up (char +Y)", which after the prone root rotation is
-      // rig +X (forward) — the Superman/paddle reach position.
-      shoulderL: [0, 0, Math.PI],
-      shoulderR: [0, 0, Math.PI],
-      elbowL: [0, 0, 0],
-      elbowR: [0, 0, 0],
+      torso:  [0, 0, 0.55],        // chest pitched up ~30° off the deck
+      head:   [0, 0, -0.15],       // small additional head lift on top of the torso pitch
+      shoulderL: [0, 0, 0.95],     // upper arm nearly vertical (elbow under shoulder)
+      shoulderR: [0, 0, 0.95],
+      elbowL: [0, 0, Math.PI / 2], // 90° elbow bend → forearms forward on deck
+      elbowR: [0, 0, Math.PI / 2],
       hipL: [0, 0, 0.05],
       hipR: [0, 0, -0.05],
       kneeL: [-0.15, 0, 0],        // legs slightly up behind
@@ -301,7 +311,7 @@ export class Character {
     this.root = sk.root;
     this.joints = sk.joints;
     this.meshes = sk.meshes;
-    this.setPose('standing_neutral');
+    this.setPose('prone_neutral');
   }
 
   /** Snap to a pose immediately. */
@@ -351,29 +361,48 @@ export class Character {
    * around the shoulder Z-axis (which, after the prone root rotation, is
    * the lateral axis) — left and right offset by π for alternation.
    *
+   * `restBlend` (0..1) smoothly fades the stroke toward the prone_neutral
+   * rest pose (both arms at reach, Z=π). Used to wind the paddle down when
+   * the player releases input, without replaying the stroke in reverse.
+   *
    * Must be called AFTER blendTo/setPose, since it overrides specific
    * joint rotations that the pose system writes.
    */
-  setPaddleStroke(phase: number): void {
+  setPaddleStroke(phase: number, restBlend: number = 0): void {
     const phaseL = phase;
     const phaseR = phase + Math.PI;
 
-    // Shoulder windmill: θ=π is reach (arm forward/overhead); decreasing θ
-    // drives arm down → back → up → forward, matching a freestyle stroke.
-    this.joints.shoulderL.rotation.set(0, 0, phaseL);
-    this.joints.shoulderR.rotation.set(0, 0, phaseR);
+    // Target values for rest are taken from whatever blendTo just wrote into
+    // the joints this frame (prone_paddle_l while paddling, prone_neutral when
+    // settled). Using live pose values means setPaddleStroke's final blend
+    // output lands exactly on the pose, so the hand-off when the stroke stops
+    // driving the joints is seamless — no snap.
+    const restShoulderL = this.joints.shoulderL.rotation.z;
+    const restShoulderR = this.joints.shoulderR.rotation.z;
+    const restElbowL    = this.joints.elbowL.rotation.z;
+    const restElbowR    = this.joints.elbowR.rotation.z;
+    const restTorsoY    = this.joints.torso.rotation.y;
+    const restHeadY     = this.joints.head.rotation.y;
 
-    // Subtle elbow bend — slight pull-through flex when the arm is in the
-    // "underwater" half of the stroke (sin(phase) > 0 in our convention).
-    const bendL = Math.max(0, Math.sin(phaseL)) * 0.6;
-    const bendR = Math.max(0, Math.sin(phaseR)) * 0.6;
-    this.joints.elbowL.rotation.set(0, 0, bendL);
-    this.joints.elbowR.rotation.set(0, 0, bendR);
+    // Shoulder windmill: θ=π is reach; decreasing θ drives arm down → back →
+    // up → forward. Wind-down lerps each arm toward the rest target along the
+    // shortest angular path so it never backtracks through the cycle played.
+    const zL = phaseL + shortestAngle(restShoulderL - phaseL) * restBlend;
+    const zR = phaseR + shortestAngle(restShoulderR - phaseR) * restBlend;
+    this.joints.shoulderL.rotation.set(0, 0, zL);
+    this.joints.shoulderR.rotation.set(0, 0, zR);
 
-    // Body roll toward the recovery arm (the one out of water), ~±17°.
-    const roll = Math.cos(phase) * 0.3;
-    this.joints.torso.rotation.y = roll;
-    this.joints.head.rotation.y = -roll * 0.4;
+    // Elbow bend and body roll cross-fade from stroke-driven values to the
+    // rest pose's values.
+    const active = 1 - restBlend;
+    const strokeBendL = Math.max(0, Math.sin(phaseL)) * 0.6;
+    const strokeBendR = Math.max(0, Math.sin(phaseR)) * 0.6;
+    this.joints.elbowL.rotation.set(0, 0, strokeBendL * active + restElbowL * restBlend);
+    this.joints.elbowR.rotation.set(0, 0, strokeBendR * active + restElbowR * restBlend);
+
+    const strokeRoll = Math.cos(phase) * 0.3;
+    this.joints.torso.rotation.y = strokeRoll * active + restTorsoY * restBlend;
+    this.joints.head.rotation.y = -strokeRoll * 0.4 * active + restHeadY * restBlend;
   }
 
   private applyBlend(): void {
@@ -414,4 +443,13 @@ function lerp3(a: Euler3, b: Euler3, t: number): Euler3 {
     a[1] + (b[1] - a[1]) * t,
     a[2] + (b[2] - a[2]) * t,
   ];
+}
+
+/** Wrap an angle delta to the shortest equivalent in (-π, π]. */
+function shortestAngle(delta: number): number {
+  const TAU = Math.PI * 2;
+  let d = delta % TAU;
+  if (d > Math.PI) d -= TAU;
+  else if (d <= -Math.PI) d += TAU;
+  return d;
 }
