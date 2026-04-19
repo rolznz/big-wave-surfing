@@ -19,7 +19,7 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.005);
+  scene.fog = new THREE.FogExp2(0x87ceeb, 0.007);
 
   const camera = new THREE.PerspectiveCamera(
     CAMERA_LENS.FOV,

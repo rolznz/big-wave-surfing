@@ -3,8 +3,10 @@ import {
   WAVE_AMP, WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
   WAVE_X_DECAY, WAVE_X_BROKEN_DECAY, WAVE_X_SIGMA_SCALE,
   WAVE_PEAK_AHEAD_X,
-  WAVE_SPEED, BREAK_SPEED, OCEAN_W, OCEAN_D,
-  OCEAN_SEG_X, OCEAN_SEG_Z, OCEAN_MESH_OFFSET_Z,
+  WAVE_SPEED, BREAK_SPEED,
+  WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z,
+  WAVE_STRIP_OFFSET_Z, WAVE_STRIP_EDGE_TAPER,
+  FLAT_OCEAN_W, FLAT_OCEAN_D, FLAT_OCEAN_Y,
   FOAM_CHOP_SCALE, FOAM_CHOP_SPEED, FOAM_CHOP_STRENGTH,
   FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
   TRAIL_LIFT,
@@ -129,6 +131,7 @@ function makeFoamTexture(): THREE.Texture {
 export class WaveOcean {
   readonly mesh: THREE.Mesh;
   readonly overlayMesh: THREE.Mesh;
+  readonly flatMesh: THREE.Mesh;
 
   /** Current world-Z position of the wave crest. */
   waveZ: number;
@@ -144,13 +147,32 @@ export class WaveOcean {
   private readonly overlayColAttr: THREE.BufferAttribute;
   private readonly foamTex: THREE.Texture;
 
+  private readonly flatGeo: THREE.BufferGeometry;
+
   private elapsed = 0;
 
   constructor(scene: THREE.Scene, startZ: number) {
     this.waveZ = startZ;
 
-    // ── Water mesh ───────────────────────────────────────────────────────
-    this.geo = new THREE.PlaneGeometry(OCEAN_W, OCEAN_D, OCEAN_SEG_X, OCEAN_SEG_Z);
+    // ── Flat base plane ──────────────────────────────────────────────────
+    // Huge 4-vertex quad sitting just above y=0 to fill the horizon. The
+    // wave strip only needs to cover the active wave band; flat water
+    // everywhere else comes from this plane for free.
+    this.flatGeo = new THREE.PlaneGeometry(FLAT_OCEAN_W, FLAT_OCEAN_D, 1, 1);
+    this.flatGeo.rotateX(-Math.PI / 2);
+    const flatMat = new THREE.MeshPhongMaterial({
+      color: COL_DEEP,
+      specular: new THREE.Color(0x99eeff),
+      shininess: 120,
+    });
+    this.flatMesh = new THREE.Mesh(this.flatGeo, flatMat);
+    this.flatMesh.position.y = FLAT_OCEAN_Y;
+    this.flatMesh.renderOrder = -1;
+    this.flatMesh.receiveShadow = true;
+    scene.add(this.flatMesh);
+
+    // ── Wave strip ───────────────────────────────────────────────────────
+    this.geo = new THREE.PlaneGeometry(WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z);
     this.geo.rotateX(-Math.PI / 2);
 
     const count = this.geo.attributes.position.count;
@@ -170,12 +192,12 @@ export class WaveOcean {
       polygonOffsetUnits: 1,
     });
     this.mesh = new THREE.Mesh(this.geo, mat);
-    this.mesh.position.z = startZ + OCEAN_MESH_OFFSET_Z;
+    this.mesh.position.z = startZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.receiveShadow = true;
     scene.add(this.mesh);
 
     // ── Foam overlay mesh (same topology, drawn above water) ─────────────
-    this.overlayGeo = new THREE.PlaneGeometry(OCEAN_W, OCEAN_D, OCEAN_SEG_X, OCEAN_SEG_Z);
+    this.overlayGeo = new THREE.PlaneGeometry(WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z);
     this.overlayGeo.rotateX(-Math.PI / 2);
     this.overlayPosAttr = this.overlayGeo.attributes.position as THREE.BufferAttribute;
     const overlayColorBuf = new Float32Array(count * 3);
@@ -193,7 +215,7 @@ export class WaveOcean {
       side: THREE.DoubleSide,
     });
     this.overlayMesh = new THREE.Mesh(this.overlayGeo, overlayMat);
-    this.overlayMesh.position.z = startZ + OCEAN_MESH_OFFSET_Z;
+    this.overlayMesh.position.z = startZ + WAVE_STRIP_OFFSET_Z;
     this.overlayMesh.renderOrder = 1;   // draw after water, before board (renderOrder=2)
     this.overlayMesh.frustumCulled = false;
     scene.add(this.overlayMesh);
@@ -204,21 +226,26 @@ export class WaveOcean {
    * The mesh follows the surfer so the ocean never runs out, while the wave
    * crest travels through it.
    */
-  update(dt: number, breakX: number, surferZ: number, _surferX: number): void {
+  update(dt: number, breakX: number, surferZ: number, surferX: number): void {
     this.elapsed += dt;
     this.waveZ += WAVE_SPEED * dt;
 
-    const meshPosZ = surferZ + OCEAN_MESH_OFFSET_Z;
+    const meshPosZ = surferZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.position.z = meshPosZ;
     this.overlayMesh.position.z = meshPosZ;
+
+    // Flat base plane follows the surfer so its edges stay fog-occluded no
+    // matter how far the surfer travels.
+    this.flatMesh.position.x = surferX;
+    this.flatMesh.position.z = surferZ;
 
     // Foam texture scroll: subtract surfer position so the on-screen scroll
     // rate stays constant regardless of surfer speed. Without this, outrunning
     // the wave made the texture appear to roll backward.
-    const worldPerUVy = OCEAN_D / this.foamTex.repeat.y;
-    const worldPerUVx = OCEAN_W / this.foamTex.repeat.x;
+    const worldPerUVy = WAVE_STRIP_D / this.foamTex.repeat.y;
+    const worldPerUVx = WAVE_STRIP_W / this.foamTex.repeat.x;
     this.foamTex.offset.y = mod1(FOAM_PARALLAX * this.waveZ / worldPerUVy - surferZ / worldPerUVy);
-    this.foamTex.offset.x = mod1((BREAK_SPEED * this.elapsed) / worldPerUVx /*- surferX / worldPerUVx*/);
+    this.foamTex.offset.x = mod1((BREAK_SPEED * this.elapsed) / worldPerUVx);
 
     const posAttr = this.posAttr;
     const colAttr = this.colAttr;
@@ -227,11 +254,33 @@ export class WaveOcean {
     const overlayPos = this.overlayPosAttr;
     const overlayCol = this.overlayColAttr;
 
+    // Z-band skip: outside this the wave's gaussian is <1% of amp, so we
+    // flatten the water cheaply. X bounds are already handled by the strip's
+    // own width (plus an edge taper below).
+    const REL_BACK  = -100;
+    const REL_FRONT =  60;
+    const halfStripW = WAVE_STRIP_W / 2;
+
     for (let i = 0; i < posAttr.count; i++) {
       const wx = posAttr.getX(i);
       const wz = posAttr.getZ(i) + meshPosZ;
+      const rel = wz - waveZ;
 
-      const h = waveHeightAt(wz, waveZ, wx, breakX);
+      if (rel < REL_BACK || rel > REL_FRONT) {
+        // Flat water — cheap write path.
+        posAttr.setY(i, 0);
+        colAttr.setXYZ(i, COL_DEEP.r, COL_DEEP.g, COL_DEEP.b);
+        foamBuf[i] = 0;
+        overlayPos.setY(i, TRAIL_LIFT);
+        overlayCol.setXYZ(i, 0, 0, 0);
+        continue;
+      }
+
+      // X-edge taper: smoothly drop wave height to 0 at the strip's left/right
+      // borders so the wave blends into the flat base plane without a cliff.
+      const edgeDist = halfStripW - Math.abs(wx);
+      const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
+      const h = waveHeightAt(wz, waveZ, wx, breakX) * edgeFactor;
       posAttr.setY(i, h);
 
       // Foam: whitewater to the left of breakX, gated by local wave height so
@@ -285,11 +334,19 @@ export class WaveOcean {
     normAttr.needsUpdate = true;
   }
 
+  setWireframe(on: boolean): void {
+    (this.mesh.material as THREE.MeshPhongMaterial).wireframe = on;
+    (this.flatMesh.material as THREE.MeshPhongMaterial).wireframe = on;
+    (this.overlayMesh.material as THREE.MeshBasicMaterial).wireframe = on;
+  }
+
   dispose(): void {
     this.geo.dispose();
     (this.mesh.material as THREE.Material).dispose();
     this.overlayGeo.dispose();
     (this.overlayMesh.material as THREE.Material).dispose();
+    this.flatGeo.dispose();
+    (this.flatMesh.material as THREE.Material).dispose();
     this.foamTex.dispose();
   }
 }

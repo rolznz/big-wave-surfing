@@ -34,6 +34,7 @@ export interface GameStatus {
 export interface LoopHandle {
   stop: () => void;
   cycleCameraMode: () => void;
+  toggleWireframe: () => boolean;
 }
 
 interface TrailSlice {
@@ -170,6 +171,13 @@ export function createLoop(
   function cycleCameraMode(): void {
     const i = CAMERA_MODES.indexOf(cameraMode);
     cameraMode = CAMERA_MODES[(i + 1) % CAMERA_MODES.length];
+  }
+
+  let wireframe = false;
+  function toggleWireframe(): boolean {
+    wireframe = !wireframe;
+    wave.setWireframe(wireframe);
+    return wireframe;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -484,6 +492,6 @@ export function createLoop(
     trailMat.dispose();
   }
 
-  return { stop, cycleCameraMode };
+  return { stop, cycleCameraMode, toggleWireframe };
 }
 

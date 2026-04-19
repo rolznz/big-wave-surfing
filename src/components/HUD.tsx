@@ -2,7 +2,9 @@ import type { GameStatus } from '../game/loop';
 
 interface Props {
   status: GameStatus;
+  wireframe: boolean;
   onCycleCamera: () => void;
+  onToggleWireframe: () => void;
 }
 
 const overlay: React.CSSProperties = {
@@ -55,10 +57,7 @@ const scoreHud: React.CSSProperties = {
   textShadow: '0 1px 6px rgba(0,0,0,0.8)',
 };
 
-const cameraButton: React.CSSProperties = {
-  position: 'fixed',
-  top: '1.5rem',
-  right: '1.5rem',
+const topRightButton: React.CSSProperties = {
   padding: '0.5rem 0.9rem',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
   fontSize: 'clamp(0.8rem, 1.8vw, 1rem)',
@@ -72,12 +71,22 @@ const cameraButton: React.CSSProperties = {
   backdropFilter: 'blur(4px)',
 };
 
+const topRightStack: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.5rem',
+  right: '1.5rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.5rem',
+  alignItems: 'flex-end',
+};
+
 const CAMERA_LABEL = { fixed: 'Fixed', chase: 'Chase' } as const;
 
 // 1 game unit ≈ 0.3 m  (wave height 50 u ≈ 15 m real-world big wave)
 const UNITS_TO_MS = 0.3;
 
-export default function HUD({ status, onCycleCamera }: Props) {
+export default function HUD({ status, wireframe, onCycleCamera, onToggleWireframe }: Props) {
   const { phase, stance, cameraMode, rideTime, speed } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
 
@@ -87,9 +96,14 @@ export default function HUD({ status, onCycleCamera }: Props) {
         <div style={scoreHud}>
           {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s &nbsp;·&nbsp; {stance === 'prone' ? 'PRONE' : 'STANDING'}
         </div>
-        <button type="button" style={cameraButton} onClick={onCycleCamera}>
-          Camera: {CAMERA_LABEL[cameraMode]}
-        </button>
+        <div style={topRightStack}>
+          <button type="button" style={topRightButton} onClick={onCycleCamera}>
+            Camera: {CAMERA_LABEL[cameraMode]}
+          </button>
+          <button type="button" style={topRightButton} onClick={onToggleWireframe}>
+            Wireframe: {wireframe ? 'ON' : 'OFF'}
+          </button>
+        </div>
         <div style={hint}>
           {stance === 'prone' ? '↑ Paddle  ↓ Brake  ← → Steer  ␣ Stand up  C Camera' : '↓ Brake  ← → Carve  ␣ Go prone  C Camera'}
         </div>
