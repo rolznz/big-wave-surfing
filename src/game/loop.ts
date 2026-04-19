@@ -418,11 +418,18 @@ export function createLoop(
 
     if (cameraMode === 'fixed') {
       // World-axis: always look toward -Z regardless of heading.
-      camTarget.set(
-        surferX,
-        rigY + CAMERA_FIXED.HEIGHT,
-        surferZ + CAMERA_FIXED.DISTANCE,
-      );
+      const camX = surferX;
+      const camZ = surferZ + CAMERA_FIXED.DISTANCE;
+
+      // Clamp Y so the wave crest never occludes the shot when it rolls
+      // between camera and surfer (surfer missed the wave / went down the back).
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX);
+      const midZ = (surferZ + camZ) * 0.5;
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX);
+      const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_FIXED.MIN_CLEARANCE;
+      const camY = Math.max(rigY + CAMERA_FIXED.HEIGHT, minY);
+
+      camTarget.set(camX, camY, camZ);
       camLookTarget.set(
         surferX,
         rigY + CAMERA_FIXED.LOOK_UP,
@@ -432,8 +439,12 @@ export function createLoop(
       // Chase: rotate with surfer heading so we see what's ahead.
       const fwdX =  Math.sin(surferAngle);
       const fwdZ = -Math.cos(surferAngle);
+      // Forward bias only engages when riding sideways along the wave (|fwdX|
+      // near 1). When facing +Z/-Z the heading-relative DISTANCE already
+      // positions the camera clear of the crest, so no extra bias is needed.
+      const bias = CAMERA_CHASE.FORWARD_BIAS * Math.abs(fwdX);
       const camX = surferX - fwdX * CAMERA_CHASE.DISTANCE;
-      const camZ = surferZ - fwdZ * CAMERA_CHASE.DISTANCE;
+      const camZ = surferZ - fwdZ * CAMERA_CHASE.DISTANCE + bias;
 
       // Clamp Y so the camera clears the wave surface at its own XZ and at the
       // midpoint toward the surfer (prevents the crest from occluding the view).

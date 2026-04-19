@@ -88,12 +88,15 @@ export const CAMERA_LENS = {
 
 // "Fixed" mode: world-axis aligned. Camera sits above/behind the surfer on the
 // +Z side and always looks toward -Z, independent of heading. Reads well for
-// the diagonal "drop" shot.
+// the diagonal "drop" shot. MIN_CLEARANCE lifts the camera above any wave
+// surface between it and the surfer — matters when the wave overtakes the
+// surfer and the crest would otherwise sit between camera and subject.
 export const CAMERA_FIXED = {
-  HEIGHT:     10,   // world-Y above surfer
-  DISTANCE:   24,   // behind surfer on +Z
-  LOOK_AHEAD: 15,   // look this far toward -Z of surfer
-  LOOK_UP:    1,    // look target world-Y above surfer
+  HEIGHT:        10,  // world-Y above surfer
+  DISTANCE:      24,  // behind surfer on +Z
+  LOOK_AHEAD:    15,  // look this far toward -Z of surfer
+  LOOK_UP:       1,   // look target world-Y above surfer
+  MIN_CLEARANCE: 4,
 } as const;
 
 // "Chase" mode: camera orbits with the surfer's heading so we always see what
@@ -107,6 +110,11 @@ export const CAMERA_CHASE = {
   LOOK_AHEAD:    20,
   LOOK_UP:       1.5,
   MIN_CLEARANCE: 5,
+  // World-space +Z offset applied regardless of heading. Keeps the camera
+  // ahead of the wave crest (wave travels toward +Z) even when the surfer
+  // turns sideways and the heading-relative DISTANCE would pull the camera
+  // back into the face of the wave.
+  FORWARD_BIAS:  10,
 } as const;
 
 // ─── Visual effects ──────────────────────────────────────────────────────────
