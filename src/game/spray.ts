@@ -3,6 +3,7 @@ import { waveHeightAt } from './wave';
 import {
   SPRAY_MAX_PARTICLES, SPRAY_SPAWN_PER_SEC, SPRAY_LIFETIME,
 } from './constants';
+import type { Rng } from './rng';
 
 function makeSprayTexture(): THREE.Texture {
   const size = 64;
@@ -31,7 +32,7 @@ export interface SpraySystem {
   dispose(): void;
 }
 
-export function createSpray(scene: THREE.Scene): SpraySystem {
+export function createSpray(scene: THREE.Scene, rng: Rng, peakAmp: number): SpraySystem {
   const N = SPRAY_MAX_PARTICLES;
 
   const positions = new Float32Array(N * 3);
@@ -119,12 +120,12 @@ export function createSpray(scene: THREE.Scene): SpraySystem {
 
     // Spawn just to the foam side of the break line (a few units left), at
     // roughly crest Z with jitter so emissions spread along the breaking lip.
-    const x = breakX - 2 - Math.random() * 6;
-    const zJitter = (Math.random() - 0.5) * 40;
+    const x = breakX - 2 - rng() * 6;
+    const zJitter = (rng() - 0.5) * 40;
     const z = waveZ + zJitter;
 
     // Sample wave height near this point so the spray launches from the surface
-    const y = waveHeightAt(z, waveZ, x, breakX);
+    const y = waveHeightAt(z, waveZ, x, breakX, peakAmp);
 
     positions[i * 3    ] = x;
     positions[i * 3 + 1] = y + 0.5;
@@ -132,13 +133,13 @@ export function createSpray(scene: THREE.Scene): SpraySystem {
 
     // Initial velocity: strong upward, tilted back (+Z) and slightly into the
     // wave face (+X) — sprays come off the lip, not the flat foam.
-    const speed = 6 + Math.random() * 6;
-    const angle = (Math.random() - 0.5) * 0.6;
+    const speed = 6 + rng() * 6;
+    const angle = (rng() - 0.5) * 0.6;
     velocities[i * 3    ] = Math.sin(angle) * speed + 1.5;
-    velocities[i * 3 + 1] = speed * (0.8 + Math.random() * 0.4);
+    velocities[i * 3 + 1] = speed * (0.8 + rng() * 0.4);
     velocities[i * 3 + 2] = Math.cos(angle) * speed + 4;
 
-    sizes[i] = 1.5 + Math.random() * 2.5;
+    sizes[i] = 1.5 + rng() * 2.5;
     colors[i * 3]     = 1;
     colors[i * 3 + 1] = 1;
     colors[i * 3 + 2] = 1;

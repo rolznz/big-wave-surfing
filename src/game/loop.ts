@@ -5,8 +5,9 @@ import { Character } from './character';
 import { Board } from './board';
 import { createSpray } from './spray';
 import {
-  WAVE_START_Z,
+  WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
+  MISSED_BY,
   SURFER_START_X, SURFER_START_Z, SURFER_X_LIMIT,
   PRONE_PHYSICS, STANDING_PHYSICS, POPUP_MIN_SPEED,
   BOARD_LIFT, TRAIL_LIFT,
@@ -15,14 +16,25 @@ import {
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
   CAMERA_FIXED, CAMERA_CHASE,
 } from './constants';
+import type { LevelConfig } from './levels';
+import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelGoalX, levelMinStars } from './levels';
+import { mulberry32 } from './rng';
+import { createObstacles, type ObstacleSystem } from './obstacles';
+import { createStars, type StarSystem } from './stars';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type GamePhase  = 'surfing' | 'wiped_out';
+export type GamePhase  = 'surfing' | 'wiped_out' | 'missed_wave' | 'completed';
 export type Stance     = 'prone' | 'standing';
 export type CameraMode = 'fixed' | 'chase';
 
 export const CAMERA_MODES: readonly CameraMode[] = ['fixed', 'chase'] as const;
+
+export interface RunStats {
+  maxSpeed: number;   // world units / sec
+  avgSpeed: number;   // world units / sec
+  turns: number;      // count of steering direction changes
+}
 
 export interface GameStatus {
   phase: GamePhase;
@@ -30,12 +42,23 @@ export interface GameStatus {
   cameraMode: CameraMode;
   rideTime: number;
   speed: number;
+  progress: number;   // 0..1 — lateral progress toward goalX
+  goalX: number;
+  starsCollected: number;
+  starsTotal: number;
+  starsRequired: number;
+  starsMissed: number;   // uncollected stars the surfer has passed in X
+  stats: RunStats;
 }
 
 export interface LoopHandle {
   stop: () => void;
-  cycleCameraMode: () => void;
   toggleWireframe: () => boolean;
+}
+
+export interface LoopOptions {
+  /** Live-readable flag: when true, surfer auto-pops from prone to standing once fast enough. */
+  autoStand: { current: boolean };
 }
 
 interface TrailSlice {
@@ -51,12 +74,30 @@ interface TrailSlice {
 export function createLoop(
   bs: BaseScene,
   onStatus: (status: GameStatus) => void,
+  level: LevelConfig,
+  opts: LoopOptions,
 ): LoopHandle {
   const { renderer, scene, camera } = bs;
 
+  // ── Level-derived params ─────────────────────────────────────────────────
+  const rng = mulberry32(level.seed);
+  const peakAmp = levelWaveAmp(level, WAVE_AMP);
+  const waveSpeed = levelWaveSpeed(level, WAVE_SPEED);
+  const breakSpeed = levelBreakSpeed(level, BREAK_SPEED);
+  const goalX = levelGoalX(level);
+  const starsRequired = levelMinStars(level);
+
   // ── World objects ────────────────────────────────────────────────────────
-  const wave = new WaveOcean(scene, WAVE_START_Z);
-  const spray = createSpray(scene);
+  const wave = new WaveOcean(scene, {
+    startZ: WAVE_START_Z,
+    peakAmp,
+    waveSpeed,
+    breakSpeed,
+    rng,
+  });
+  const spray = createSpray(scene, rng, peakAmp);
+  const obstacleSys: ObstacleSystem = createObstacles(scene, level, rng);
+  const starSys: StarSystem = createStars(scene, level, rng, obstacleSys.obstacles);
 
   // Rig group = the thing we orient to the wave surface. Character + Board
   // live inside it in their own local frame.
@@ -83,6 +124,16 @@ export function createLoop(
   let rideTime  = 0;
   let paddleCycleT = 0;        // seconds of continuous paddling (keeps advancing during wind-down)
   let paddleRestBlend = 0;     // 0 = fully stroking, 1 = fully at rest pose
+
+  // Stats (reset per run).
+  let maxSpeed = 0;
+  let speedAccum = 0;
+  let speedSamples = 0;
+  let turns = 0;
+  // Track last *active* steering direction (not the per-frame input state).
+  // A "turn" is a flip from left→right or right→left input, debounced on
+  // keydown events so holding a key doesn't count repeatedly.
+  let lastSteer: 'left' | 'right' | null = null;
 
   const input = { left: false, right: false, up: false, down: false };
 
@@ -133,8 +184,22 @@ export function createLoop(
 
   // ── Input ─────────────────────────────────────────────────────────────────
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === 'ArrowLeft'  || e.key === 'a') input.left  = true;
-    if (e.key === 'ArrowRight' || e.key === 'd') input.right = true;
+    if (e.repeat) return;   // don't double-count held keys for turn tracking
+
+    if (e.key === 'ArrowLeft'  || e.key === 'a') {
+      input.left = true;
+      if (phase === 'surfing') {
+        if (lastSteer === 'right') turns++;
+        lastSteer = 'left';
+      }
+    }
+    if (e.key === 'ArrowRight' || e.key === 'd') {
+      input.right = true;
+      if (phase === 'surfing') {
+        if (lastSteer === 'left') turns++;
+        lastSteer = 'right';
+      }
+    }
     if (e.key === 'ArrowUp'    || e.key === 'w') input.up    = true;
     if (e.key === 'ArrowDown'  || e.key === 's') input.down  = true;
     if (e.key === ' ' || e.code === 'Space') {
@@ -200,6 +265,14 @@ export function createLoop(
   // ── Update: physics ───────────────────────────────────────────────────────
   function updatePhysics(dt: number): { gradX: number; gradZ: number } {
     rideTime += dt;
+
+    // Auto-stand: once moving fast enough, the surfer pops up automatically.
+    if (opts.autoStand.current && phase === 'surfing' && stance === 'prone') {
+      if (Math.hypot(surferVX, surferVZ) >= POPUP_MIN_SPEED) {
+        stance = 'standing';
+      }
+    }
+
     const P = physics();
 
     // 1. Rotate heading
@@ -228,10 +301,10 @@ export function createLoop(
 
     // 3. Wave drive — gravity along slope, projected onto heading
     const eps = 0.5;
-    const gradX = (waveHeightAt(surferZ,       wave.waveZ, surferX + eps, breakX)
-                 - waveHeightAt(surferZ,       wave.waveZ, surferX - eps, breakX)) / (2 * eps);
-    const gradZ = (waveHeightAt(surferZ + eps, wave.waveZ, surferX,       breakX)
-                 - waveHeightAt(surferZ - eps, wave.waveZ, surferX,       breakX)) / (2 * eps);
+    const gradX = (waveHeightAt(surferZ,       wave.waveZ, surferX + eps, breakX, peakAmp)
+                 - waveHeightAt(surferZ,       wave.waveZ, surferX - eps, breakX, peakAmp)) / (2 * eps);
+    const gradZ = (waveHeightAt(surferZ + eps, wave.waveZ, surferX,       breakX, peakAmp)
+                 - waveHeightAt(surferZ - eps, wave.waveZ, surferX,       breakX, peakAmp)) / (2 * eps);
 
     const slopeAlongBoard = -gradX * fwdX - gradZ * fwdZ;
     const waveDrive = slopeAlongBoard * P.WAVE_PUSH_FACTOR;
@@ -265,12 +338,46 @@ export function createLoop(
     surferZ += surferVZ * dt;
     surferX = Math.max(-SURFER_X_LIMIT, Math.min(SURFER_X_LIMIT, surferX));
 
+    // 6b. Stats
+    const speedNow = Math.hypot(surferVX, surferVZ);
+    if (speedNow > maxSpeed) maxSpeed = speedNow;
+    speedAccum += speedNow;
+    speedSamples++;
+
     // 7. Break front advances
     const breakRange = SURFER_X_LIMIT - BREAK_START_X;
-    breakX = BREAK_START_X + (BREAK_SPEED * rideTime) % breakRange;
+    breakX = BREAK_START_X + (breakSpeed * rideTime) % breakRange;
 
-    // 8. Wipeout check
-    const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX);
+    // 8. Completion — reached the right-hand goal AND collected enough stars.
+    // If stars are still needed, the surfer can keep riding to hunt more;
+    // the wave will eventually overtake them if they stall too long.
+    if (surferX >= goalX && starSys.collectedCount >= starsRequired) {
+      phase = 'completed';
+      surferVX = 0;
+      surferVZ = 0;
+      return { gradX, gradZ };
+    }
+
+    // 9. Miss — wave crest has passed the surfer by more than MISSED_BY.
+    if (wave.waveZ - surferZ > MISSED_BY) {
+      phase = 'missed_wave';
+      character.setPose('wipeout_limp');
+      return { gradX, gradZ };
+    }
+
+    // 10. Obstacle collision → wipeout.
+    const surferY = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp) + BOARD_LIFT;
+    if (obstacleSys.check(surferX, surferY, surferZ, wave.waveZ)) {
+      phase = 'wiped_out';
+      character.setPose('wipeout_limp');
+      return { gradX, gradZ };
+    }
+
+    // 10b. Star pickup.
+    starSys.tryCollect(surferX, surferY, surferZ, wave.waveZ);
+
+    // 11. Wipeout check (whitewater overtakes surfer)
+    const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp);
     if (waveHere > WIPEOUT_HEIGHT && breakX > surferX + WIPEOUT_GRACE) {
       phase = 'wiped_out';
       character.setPose('wipeout_limp');
@@ -283,7 +390,7 @@ export function createLoop(
   function updateRigTransform(gradX: number, gradZ: number): void {
     const nrmLen = Math.sqrt(gradX * gradX + 1 + gradZ * gradZ);
     const nX = -gradX / nrmLen, nY = 1 / nrmLen, nZ = -gradZ / nrmLen;
-    const waveH = waveHeightAt(surferZ, wave.waveZ, surferX, breakX);
+    const waveH = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp);
 
     rig.position.set(
       surferX + nX * BOARD_LIFT,
@@ -405,7 +512,7 @@ export function createLoop(
       const fade = Math.max(0, 1 - age / TRAIL_DURATION);
       const b = s.brightness * fade;
 
-      const currentY = waveHeightAt(s.z, wave.waveZ, s.x, breakX) + TRAIL_LIFT;
+      const currentY = waveHeightAt(s.z, wave.waveZ, s.x, breakX, peakAmp) + TRAIL_LIFT;
       const base = i * 2 * 3;
 
       trailPositions[base    ] = s.x - s.perpX * s.halfW;
@@ -454,9 +561,9 @@ export function createLoop(
 
       // Clamp Y so the wave crest never occludes the shot when it rolls
       // between camera and surfer (surfer missed the wave / went down the back).
-      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX);
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp);
       const midZ = (surferZ + camZ) * 0.5;
-      const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX);
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX, peakAmp);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_FIXED.MIN_CLEARANCE;
       const camY = Math.max(rigY + CAMERA_FIXED.HEIGHT, minY);
 
@@ -479,10 +586,10 @@ export function createLoop(
 
       // Clamp Y so the camera clears the wave surface at its own XZ and at the
       // midpoint toward the surfer (prevents the crest from occluding the view).
-      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX);
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp);
       const midX = (surferX + camX) * 0.5;
       const midZ = (surferZ + camZ) * 0.5;
-      const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX);
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX, peakAmp);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_CHASE.MIN_CLEARANCE;
       const camY = Math.max(rigY + CAMERA_CHASE.HEIGHT, minY);
 
@@ -520,11 +627,33 @@ export function createLoop(
       wave.update(0, breakX, surferZ, surferX);
       spray.update(dt, breakX, wave.waveZ, surferZ);
     }
+    const sampleHeight = (x: number, z: number) =>
+      waveHeightAt(z, wave.waveZ, x, breakX, peakAmp);
+    obstacleSys.update(wave.waveZ, sampleHeight);
+    starSys.update(wave.waveZ, sampleHeight, dt);
 
     rebuildTrail(now);
     updateCamera(dt);
 
-    onStatus({ phase, stance, cameraMode, rideTime, speed: Math.hypot(surferVX, surferVZ) });
+    const progress = Math.max(
+      0,
+      Math.min(1, (surferX - SURFER_START_X) / (goalX - SURFER_START_X)),
+    );
+    const avgSpeed = speedSamples > 0 ? speedAccum / speedSamples : 0;
+    onStatus({
+      phase,
+      stance,
+      cameraMode,
+      rideTime,
+      speed: Math.hypot(surferVX, surferVZ),
+      progress,
+      goalX,
+      starsCollected: starSys.collectedCount,
+      starsTotal: starSys.total,
+      starsRequired,
+      starsMissed: starSys.missedCount(surferX),
+      stats: { maxSpeed, avgSpeed, turns },
+    });
     renderer.render(scene, camera);
   }
 
@@ -541,8 +670,10 @@ export function createLoop(
     board.dispose();
     trailGeo.dispose();
     trailMat.dispose();
+    obstacleSys.dispose();
+    starSys.dispose();
   }
 
-  return { stop, cycleCameraMode, toggleWireframe };
+  return { stop, toggleWireframe };
 }
 

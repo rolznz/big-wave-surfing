@@ -3,7 +3,6 @@ import {
   WAVE_AMP, WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
   WAVE_X_DECAY, WAVE_X_BROKEN_DECAY, WAVE_X_SIGMA_SCALE,
   WAVE_PEAK_AHEAD_X,
-  WAVE_SPEED, BREAK_SPEED,
   WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z,
   WAVE_STRIP_OFFSET_Z, WAVE_STRIP_EDGE_TAPER,
   FLAT_OCEAN_W, FLAT_OCEAN_D, FLAT_OCEAN_Y,
@@ -11,6 +10,7 @@ import {
   FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
   TRAIL_LIFT,
 } from './constants';
+import type { Rng } from './rng';
 
 // ─── Wave profile ────────────────────────────────────────────────────────────
 
@@ -21,18 +21,22 @@ import {
  *   decays exponentially in both directions — fast on the broken side
  *   (whitewater loses energy), slow on the clean shoulder. The back-slope
  *   sigma also widens as we move right along the clean shoulder.
+ *
+ * `peakAmp` is the crest amplitude (per-level scaling happens by the caller
+ * passing a pre-multiplied value — defaults to WAVE_AMP for unscaled use).
  */
 export function waveHeightAt(
   worldZ: number,
   waveZ: number,
   worldX = 0,
   breakX = 0,
+  peakAmp: number = WAVE_AMP,
 ): number {
   const rel = worldZ - waveZ;
   const peakX = breakX + WAVE_PEAK_AHEAD_X;
   const xDistClean  = Math.max(0, worldX - peakX);
   const xDistBroken = Math.max(0, peakX - worldX);
-  const amp = WAVE_AMP
+  const amp = peakAmp
     * Math.exp(-xDistClean  / WAVE_X_DECAY)
     * Math.exp(-xDistBroken / WAVE_X_BROKEN_DECAY);
   const sigmaBack = WAVE_SIGMA_BACK + xDistClean / WAVE_X_SIGMA_SCALE;
@@ -98,7 +102,7 @@ function vertexColor(height: number, foam: number, out: THREE.Color): void {
 
 // ─── Foam overlay texture (generated once, no asset dependency) ──────────────
 
-function makeFoamTexture(): THREE.Texture {
+function makeFoamTexture(rng: Rng): THREE.Texture {
   const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -107,10 +111,10 @@ function makeFoamTexture(): THREE.Texture {
   ctx.clearRect(0, 0, size, size);
   // Scatter 1800 soft white bubbles with varying size and opacity
   for (let i = 0; i < 1800; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const r = 1.5 + Math.random() * 14;
-    const a = 0.2 + Math.random() * 0.6;
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = 1.5 + rng() * 14;
+    const a = 0.2 + rng() * 0.6;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
     grad.addColorStop(0, `rgba(255,255,255,${a})`);
     grad.addColorStop(1, 'rgba(255,255,255,0)');
@@ -128,6 +132,14 @@ function makeFoamTexture(): THREE.Texture {
 
 // ─── WaveOcean ───────────────────────────────────────────────────────────────
 
+export interface WaveOceanParams {
+  startZ: number;
+  peakAmp: number;
+  waveSpeed: number;
+  breakSpeed: number;
+  rng: Rng;
+}
+
 export class WaveOcean {
   readonly mesh: THREE.Mesh;
   readonly overlayMesh: THREE.Mesh;
@@ -135,6 +147,10 @@ export class WaveOcean {
 
   /** Current world-Z position of the wave crest. */
   waveZ: number;
+
+  readonly peakAmp: number;
+  readonly waveSpeed: number;
+  readonly breakSpeed: number;
 
   private readonly geo: THREE.BufferGeometry;
   private readonly posAttr: THREE.BufferAttribute;
@@ -151,8 +167,11 @@ export class WaveOcean {
 
   private elapsed = 0;
 
-  constructor(scene: THREE.Scene, startZ: number) {
-    this.waveZ = startZ;
+  constructor(scene: THREE.Scene, params: WaveOceanParams) {
+    this.waveZ = params.startZ;
+    this.peakAmp = params.peakAmp;
+    this.waveSpeed = params.waveSpeed;
+    this.breakSpeed = params.breakSpeed;
 
     // ── Flat base plane ──────────────────────────────────────────────────
     // Huge 4-vertex quad sitting just above y=0 to fill the horizon. The
@@ -192,7 +211,7 @@ export class WaveOcean {
       polygonOffsetUnits: 1,
     });
     this.mesh = new THREE.Mesh(this.geo, mat);
-    this.mesh.position.z = startZ + WAVE_STRIP_OFFSET_Z;
+    this.mesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.receiveShadow = true;
     scene.add(this.mesh);
 
@@ -204,7 +223,7 @@ export class WaveOcean {
     this.overlayColAttr = new THREE.BufferAttribute(overlayColorBuf, 3);
     this.overlayGeo.setAttribute('color', this.overlayColAttr);
 
-    this.foamTex = makeFoamTexture();
+    this.foamTex = makeFoamTexture(params.rng);
 
     const overlayMat = new THREE.MeshBasicMaterial({
       map: this.foamTex,
@@ -215,7 +234,7 @@ export class WaveOcean {
       side: THREE.DoubleSide,
     });
     this.overlayMesh = new THREE.Mesh(this.overlayGeo, overlayMat);
-    this.overlayMesh.position.z = startZ + WAVE_STRIP_OFFSET_Z;
+    this.overlayMesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
     this.overlayMesh.renderOrder = 1;   // draw after water, before board (renderOrder=2)
     this.overlayMesh.frustumCulled = false;
     scene.add(this.overlayMesh);
@@ -228,7 +247,7 @@ export class WaveOcean {
    */
   update(dt: number, breakX: number, surferZ: number, surferX: number): void {
     this.elapsed += dt;
-    this.waveZ += WAVE_SPEED * dt;
+    this.waveZ += this.waveSpeed * dt;
 
     const meshPosZ = surferZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.position.z = meshPosZ;
@@ -245,7 +264,7 @@ export class WaveOcean {
     const worldPerUVy = WAVE_STRIP_D / this.foamTex.repeat.y;
     const worldPerUVx = WAVE_STRIP_W / this.foamTex.repeat.x;
     this.foamTex.offset.y = mod1(FOAM_PARALLAX * this.waveZ / worldPerUVy - surferZ / worldPerUVy);
-    this.foamTex.offset.x = mod1((BREAK_SPEED * this.elapsed) / worldPerUVx);
+    this.foamTex.offset.x = mod1((this.breakSpeed * this.elapsed) / worldPerUVx);
 
     const posAttr = this.posAttr;
     const colAttr = this.colAttr;
@@ -280,7 +299,7 @@ export class WaveOcean {
       // borders so the wave blends into the flat base plane without a cliff.
       const edgeDist = halfStripW - Math.abs(wx);
       const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
-      const h = waveHeightAt(wz, waveZ, wx, breakX) * edgeFactor;
+      const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp) * edgeFactor;
       posAttr.setY(i, h);
 
       // Foam: whitewater to the left of breakX, gated by local wave height so
@@ -288,7 +307,7 @@ export class WaveOcean {
       // wave in Z).
       const foamDist = breakX - wx;
       const foamX = Math.max(0, Math.min(1, foamDist / 4));
-      const heightFactor = Math.min(1, h / (WAVE_AMP * FOAM_HEIGHT_FRAC));
+      const heightFactor = Math.min(1, h / (this.peakAmp * FOAM_HEIGHT_FRAC));
       const foam = foamX * heightFactor;
       foamBuf[i] = foam;
 

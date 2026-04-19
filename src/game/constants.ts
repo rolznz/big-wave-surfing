@@ -15,6 +15,10 @@ export const BREAK_SPEED    = 5;
 export const WIPEOUT_GRACE  = 5;
 export const WIPEOUT_HEIGHT = 0.5;
 
+// Miss threshold: if the wave crest passes the surfer by more than this many
+// units (waveZ - surferZ), the wave is considered missed and the run ends.
+export const MISSED_BY      = 10;
+
 // ─── Ocean mesh ──────────────────────────────────────────────────────────────
 // Wave strip mesh — dense, sized to just cover the wave's active footprint.
 // X-width must exceed the wave's X footprint (see note); Z-depth must contain
@@ -57,7 +61,7 @@ export const PRONE_PHYSICS = {
 export const STANDING_PHYSICS = {
   PADDLE_THRUST:    0,
   WATER_DRAG:       1.0,
-  BRAKE_DRAG:       10.0,
+  BRAKE_DRAG:       20.0,
   TURN_SPEED:       3.0,
   WAVE_PUSH_FACTOR: 5,
   FIN_GRIP_BASE:    4,
@@ -65,7 +69,7 @@ export const STANDING_PHYSICS = {
 } as const;
 
 // Speed the surfer must be doing to stand up (can't stand on a still board)
-export const POPUP_MIN_SPEED = 4;
+export const POPUP_MIN_SPEED = 20;
 
 // ─── Board / rig placement ───────────────────────────────────────────────────
 export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)
@@ -99,7 +103,7 @@ export const CAMERA_LENS = {
 // surfer and the crest would otherwise sit between camera and subject.
 export const CAMERA_FIXED = {
   HEIGHT:        10,  // world-Y above surfer
-  DISTANCE:      24,  // behind surfer on +Z
+  DISTANCE:      35,  // behind surfer on +Z
   LOOK_AHEAD:    15,  // look this far toward -Z of surfer
   LOOK_UP:       1,   // look target world-Y above surfer
   MIN_CLEARANCE: 4,
