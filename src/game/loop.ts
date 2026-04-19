@@ -10,6 +10,7 @@ import {
   SURFER_START_X, SURFER_START_Z, SURFER_X_LIMIT,
   PRONE_PHYSICS, STANDING_PHYSICS, POPUP_MIN_SPEED,
   BOARD_LIFT, TRAIL_LIFT,
+  RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
   CAMERA_FIXED, CAMERA_CHASE,
@@ -297,14 +298,44 @@ export function createLoop(
     const tLen   = Math.sqrt(fwdX * fwdX + slopeY * slopeY + fwdZ * fwdZ);
     const tX = fwdX / tLen, tY = slopeY / tLen, tZ = fwdZ / tLen;
 
-    const rX = tY * nZ - tZ * nY;
-    const rY = tZ * nX - tX * nZ;
-    const rZ = tX * nY - tY * nX;
+    // Rail engagement: reduce the cross-slope roll so the deck sits closer to
+    // horizontal than the wave face, as if the fin and downhill rail were
+    // gripping the water. Blends the up vector toward world-up projected onto
+    // the plane ⊥ to the tangent — keeps pitch exact, only roll changes.
+    let uX = nX, uY = nY, uZ = nZ;
+    if (stance === 'standing') {
+      // Lateral velocity magnitude in the board's right-axis frame (same as
+      // the carve-pose selector). right-axis = (fwdZ, -fwdX) in world X/Z.
+      const vDotFwd = surferVX * fwdX + surferVZ * fwdZ;
+      const vLatX = surferVX - vDotFwd * fwdX;
+      const vLatZ = surferVZ - vDotFwd * fwdZ;
+      const right = vLatX * (-fwdZ) + vLatZ * fwdX;
+      const absLean = Math.min(1, Math.abs(right) / 8);
+      const e = RAIL_ENGAGEMENT_BASE + RAIL_ENGAGEMENT_GAIN * absLean;
+
+      // World-up minus its tangent-component → zero-roll up target.
+      const upDotT = tY;             // (0,1,0) · (tX,tY,tZ)
+      const qX = -upDotT * tX;
+      const qY =  1 - upDotT * tY;
+      const qZ = -upDotT * tZ;
+      const qLen = Math.sqrt(qX * qX + qY * qY + qZ * qZ);
+      const uqX = qX / qLen, uqY = qY / qLen, uqZ = qZ / qLen;
+
+      const bX = nX + (uqX - nX) * e;
+      const bY = nY + (uqY - nY) * e;
+      const bZ = nZ + (uqZ - nZ) * e;
+      const bLen = Math.sqrt(bX * bX + bY * bY + bZ * bZ);
+      uX = bX / bLen; uY = bY / bLen; uZ = bZ / bLen;
+    }
+
+    const rX = tY * uZ - tZ * uY;
+    const rY = tZ * uX - tX * uZ;
+    const rZ = tX * uY - tY * uX;
 
     _rigMat.set(
-      tX, nX, rX, 0,
-      tY, nY, rY, 0,
-      tZ, nZ, rZ, 0,
+      tX, uX, rX, 0,
+      tY, uY, rY, 0,
+      tZ, uZ, rZ, 0,
       0,  0,  0,  1,
     );
     rig.quaternion.setFromRotationMatrix(_rigMat);

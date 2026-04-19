@@ -71,6 +71,12 @@ export const POPUP_MIN_SPEED = 4;
 export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)
 export const TRAIL_LIFT = 0.08;  // wake trail hovers this much above the wave surface
 
+// ─── Rail engagement ─────────────────────────────────────────────────────────
+// Fraction by which the board's cross-slope roll is reduced (rail + fin grip
+// lets the deck stay closer to horizontal than the wave face).
+export const RAIL_ENGAGEMENT_BASE = 0.5;  // always-on while standing
+export const RAIL_ENGAGEMENT_GAIN = 0.5;  // additional, scaled by lateral velocity
+
 // ─── Wake trail ──────────────────────────────────────────────────────────────
 export const TRAIL_DURATION   = 5.0;  // seconds before a slice fades out
 export const TRAIL_SEGMENTS   = 150;  // max slices kept
