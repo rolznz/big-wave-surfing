@@ -5,11 +5,14 @@ export interface ObstacleSpec {
   count: number;
 }
 
+export type Difficulty = 1 | 2 | 3 | 4 | 5;
+
 export interface LevelConfig {
   id: string;
   name: string;
   description?: string;
   seed: number;
+  difficulty: Difficulty;
   waveAmpMultiplier?: number;
   waveSpeedMultiplier?: number;
   breakSpeedMultiplier?: number;
@@ -27,6 +30,7 @@ export const LEVELS: LevelConfig[] = [
     name: '1 · Mellow Point',
     description: 'A clean, easy wave to learn the lines.',
     seed: 1,
+    difficulty: 1,
     waveAmpMultiplier: 0.7,
     waveSpeedMultiplier: 0.9,
     breakSpeedMultiplier: 0.8,
@@ -39,6 +43,7 @@ export const LEVELS: LevelConfig[] = [
     name: '2 · Reef Break',
     description: 'A punchier wave with a few scattered rocks.',
     seed: 42,
+    difficulty: 2,
     waveAmpMultiplier: 1.0,
     waveSpeedMultiplier: 1.0,
     breakSpeedMultiplier: 1.0,
@@ -51,6 +56,7 @@ export const LEVELS: LevelConfig[] = [
     name: '3 · Heavy Water',
     description: 'Big wave, fast break, plenty of rocks to dodge.',
     seed: 1337,
+    difficulty: 3,
     waveAmpMultiplier: 1.4,
     waveSpeedMultiplier: 1.1,
     breakSpeedMultiplier: 1.15,
@@ -63,6 +69,7 @@ export const LEVELS: LevelConfig[] = [
     name: '4 · Monster Swell',
     description: 'Towering wall of water. One shot, make it count.',
     seed: 9001,
+    difficulty: 4,
     waveAmpMultiplier: 1.8,
     waveSpeedMultiplier: 1.2,
     breakSpeedMultiplier: 1.3,
@@ -75,6 +82,7 @@ export const LEVELS: LevelConfig[] = [
     name: '5 · Starlit Mountain',
     description: 'No rocks — just a colossal, screaming-fast wave and stars to chase.',
     seed: 2718,
+    difficulty: 5,
     waveAmpMultiplier: 1,
     waveSpeedMultiplier: 2.4,
     breakSpeedMultiplier: 2.6,

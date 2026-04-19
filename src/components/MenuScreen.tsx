@@ -147,14 +147,9 @@ const modalClose: React.CSSProperties = {
   cursor: 'pointer',
 };
 
-function difficultyFromLevel(l: LevelConfig): string {
-  const amp = l.waveAmpMultiplier ?? 1;
-  const rocks = (l.obstacles ?? []).reduce((s, o) => s + o.count, 0);
-  const score = amp + rocks * 0.1;
-  if (score < 0.9) return '★☆☆☆';
-  if (score < 1.3) return '★★☆☆';
-  if (score < 1.9) return '★★★☆';
-  return '★★★★';
+function difficultyStars(l: LevelConfig): string {
+  const filled = Math.max(0, Math.min(5, l.difficulty));
+  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
 }
 
 export default function MenuScreen({
@@ -197,7 +192,7 @@ export default function MenuScreen({
             <div style={cardName}>{level.name}</div>
             <div style={cardDesc}>{level.description}</div>
             <div style={cardMeta}>
-              Difficulty {difficultyFromLevel(level)}
+              Difficulty {difficultyStars(level)}
               {(level.obstacles ?? []).length > 0 && ` · ${(level.obstacles ?? []).reduce((s, o) => s + o.count, 0)} rocks`}
               {(level.numStars ?? 0) > 0 && ` · collect ${level.minStars ?? level.numStars}/${level.numStars} ★`}
             </div>
