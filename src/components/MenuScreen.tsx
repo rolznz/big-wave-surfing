@@ -80,10 +80,19 @@ const cardMeta: React.CSSProperties = {
   textTransform: 'uppercase',
 };
 
-const settingsButton: React.CSSProperties = {
+const topRightBar: React.CSSProperties = {
   position: 'fixed',
   top: '1.5rem',
   right: '1.5rem',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.5rem',
+};
+
+const topRightButton: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.4rem',
   padding: '0.5rem 0.9rem',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
   fontSize: 'clamp(0.8rem, 1.8vw, 1rem)',
@@ -94,6 +103,8 @@ const settingsButton: React.CSSProperties = {
   cursor: 'pointer',
   textShadow: '0 1px 4px rgba(0,0,0,0.8)',
   backdropFilter: 'blur(4px)',
+  textDecoration: 'none',
+  lineHeight: 1,
 };
 
 const modalBackdrop: React.CSSProperties = {
@@ -163,14 +174,34 @@ export default function MenuScreen({
 
   return (
     <div style={wrap}>
-      <button
-        type="button"
-        style={settingsButton}
-        onClick={() => setSettingsOpen(true)}
-        aria-label="Settings"
-      >
-        ⚙ Settings
-      </button>
+      <div style={topRightBar}>
+        <button
+          type="button"
+          style={topRightButton}
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Settings"
+        >
+          ⚙ Settings
+        </button>
+        <a
+          href="https://github.com/rolznz/big-wave-surfing"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={topRightButton}
+          aria-label="GitHub repository"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M12 .5C5.73.5.75 5.48.75 11.75c0 4.97 3.22 9.18 7.69 10.67.56.1.77-.24.77-.54 0-.27-.01-.97-.02-1.9-3.13.68-3.79-1.51-3.79-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.57 0-1.23.44-2.24 1.16-3.03-.12-.29-.5-1.44.11-3 0 0 .95-.3 3.1 1.16.9-.25 1.86-.37 2.82-.38.96.01 1.92.13 2.82.38 2.15-1.46 3.1-1.16 3.1-1.16.61 1.56.23 2.71.11 3 .72.79 1.16 1.8 1.16 3.03 0 4.33-2.64 5.29-5.15 5.56.4.35.76 1.03.76 2.08 0 1.5-.01 2.71-.01 3.08 0 .3.2.65.78.54 4.46-1.49 7.68-5.7 7.68-10.67C23.25 5.48 18.27.5 12 .5z" />
+          </svg>
+          GitHub
+        </a>
+      </div>
       <h1 style={title}>Big Wave Surfing</h1>
       <div style={subtitle}>Pick a wave.</div>
       <div style={grid}>
