@@ -1,6 +1,10 @@
 # Big Wave Surfing
 
-Big-wave surfing game in Three.js — ride an infinite breaking wave and see how long you can survive.
+**[Play it now](https://bigwavesurfing.fun)**
+
+<img src="./screenshots/image.png"/>
+
+Big-wave surfing game in Three.js — ride big waves of different levels of difficulty, avoid obstacles, collect stars.
 
 ## Gameplay
 
