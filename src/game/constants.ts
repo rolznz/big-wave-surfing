@@ -69,7 +69,7 @@ export const STANDING_PHYSICS = {
 } as const;
 
 // Speed the surfer must be doing to stand up (can't stand on a still board)
-export const POPUP_MIN_SPEED = 20;
+export const POPUP_MIN_SPEED = 15;
 
 // ─── Board / rig placement ───────────────────────────────────────────────────
 export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)

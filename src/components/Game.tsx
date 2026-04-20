@@ -12,6 +12,8 @@ interface Props {
   onExit: () => void;
   showAdvancedOptions: boolean;
   autoStand: boolean;
+  showHotkeys: boolean;
+  showMenuButton: boolean;
 }
 
 function initialStatus(level: LevelConfig): GameStatus {
@@ -32,7 +34,7 @@ function initialStatus(level: LevelConfig): GameStatus {
   };
 }
 
-export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, autoStand }: Props) {
+export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, autoStand, showHotkeys, showMenuButton }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const toggleWireframeRef = useRef<() => boolean>(() => false);
   const autoStandRef = useRef<boolean>(autoStand);
@@ -99,7 +101,7 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
         return;
       }
       if (e.key === 'Escape' || e.key === 'm' || e.key === 'M') {
-        if (status.phase !== 'surfing') onExit();
+        onExit();
         return;
       }
     }
@@ -122,6 +124,8 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
         level={level}
         wireframe={wireframe}
         showAdvancedOptions={showAdvancedOptions}
+        showHotkeys={showHotkeys}
+        showMenuButton={showMenuButton}
         onToggleWireframe={onToggleWireframe}
         onRetry={retry}
         onNextLevel={goNextLevel}

@@ -5,6 +5,8 @@ import { LEVELS, type LevelConfig } from './game/levels';
 
 const ADVANCED_OPTIONS_KEY = 'bws.showAdvancedOptions';
 const AUTO_STAND_KEY = 'bws.autoStand';
+const SHOW_HOTKEYS_KEY = 'bws.showHotkeys';
+const SHOW_MENU_BUTTON_KEY = 'bws.showMenuButton';
 const CURRENT_LEVEL_KEY = 'bws.currentLevelId';
 
 function readBool(key: string, fallback: boolean): boolean {
@@ -43,6 +45,12 @@ export default function App() {
   const [autoStand, setAutoStand] = useState<boolean>(
     () => readBool(AUTO_STAND_KEY, true),
   );
+  const [showHotkeys, setShowHotkeys] = useState<boolean>(
+    () => readBool(SHOW_HOTKEYS_KEY, true),
+  );
+  const [showMenuButton, setShowMenuButton] = useState<boolean>(
+    () => readBool(SHOW_MENU_BUTTON_KEY, true),
+  );
 
   useEffect(() => {
     writeBool(ADVANCED_OPTIONS_KEY, showAdvancedOptions);
@@ -53,11 +61,27 @@ export default function App() {
   }, [autoStand]);
 
   useEffect(() => {
+    writeBool(SHOW_HOTKEYS_KEY, showHotkeys);
+  }, [showHotkeys]);
+
+  useEffect(() => {
+    writeBool(SHOW_MENU_BUTTON_KEY, showMenuButton);
+  }, [showMenuButton]);
+
+  useEffect(() => {
     try {
       if (level) localStorage.setItem(CURRENT_LEVEL_KEY, level.id);
       else localStorage.removeItem(CURRENT_LEVEL_KEY);
     } catch {
       // ignore
+    }
+  }, [level]);
+
+  useEffect(() => {
+    if (level) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('portal') === 'true' && LEVELS[0]) {
+      setLevel(LEVELS[0]);
     }
   }, [level]);
 
@@ -72,6 +96,10 @@ export default function App() {
         onChangeShowAdvancedOptions={setShowAdvancedOptions}
         autoStand={autoStand}
         onChangeAutoStand={setAutoStand}
+        showHotkeys={showHotkeys}
+        onChangeShowHotkeys={setShowHotkeys}
+        showMenuButton={showMenuButton}
+        onChangeShowMenuButton={setShowMenuButton}
       />
     );
   }
@@ -82,6 +110,8 @@ export default function App() {
       onExit={onExit}
       showAdvancedOptions={showAdvancedOptions}
       autoStand={autoStand}
+      showHotkeys={showHotkeys}
+      showMenuButton={showMenuButton}
     />
   );
 }

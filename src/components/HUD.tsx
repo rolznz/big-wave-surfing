@@ -7,6 +7,8 @@ interface Props {
   level: LevelConfig;
   wireframe: boolean;
   showAdvancedOptions: boolean;
+  showHotkeys: boolean;
+  showMenuButton: boolean;
   onToggleWireframe: () => void;
   onRetry: () => void;
   onNextLevel: () => void;   // advance to next level (or return to menu if last)
@@ -205,7 +207,7 @@ function StarCounter({
 }
 
 export default function HUD({
-  status, level, wireframe, showAdvancedOptions,
+  status, level, wireframe, showAdvancedOptions, showHotkeys, showMenuButton,
   onToggleWireframe,
   onRetry, onNextLevel, onExit, hasNextLevel,
 }: Props) {
@@ -270,11 +272,13 @@ export default function HUD({
               Wireframe: {wireframe ? 'ON' : 'OFF'}
             </button>
           )}
-          <button type="button" style={topRightButton} onClick={onExit}>
-            Menu
-          </button>
+          {showMenuButton && (
+            <button type="button" style={topRightButton} onClick={onExit}>
+              Menu
+            </button>
+          )}
         </div>
-        {!isTouchPrimary && (
+        {!isTouchPrimary && showHotkeys && (
           <div style={hint}>
             {stance === 'prone'
               ? (showAdvancedOptions
@@ -337,7 +341,7 @@ export default function HUD({
           Menu
         </button>
       </div>
-      {!isTouchPrimary && (
+      {!isTouchPrimary && showHotkeys && (
         <div style={{ ...sub, marginTop: '1rem', opacity: 0.6 }}>
           {enterHint}
         </div>

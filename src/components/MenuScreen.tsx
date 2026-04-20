@@ -8,6 +8,10 @@ interface Props {
   onChangeShowAdvancedOptions: (v: boolean) => void;
   autoStand: boolean;
   onChangeAutoStand: (v: boolean) => void;
+  showHotkeys: boolean;
+  onChangeShowHotkeys: (v: boolean) => void;
+  showMenuButton: boolean;
+  onChangeShowMenuButton: (v: boolean) => void;
 }
 
 const wrap: React.CSSProperties = {
@@ -210,6 +214,10 @@ export default function MenuScreen({
   onChangeShowAdvancedOptions,
   autoStand,
   onChangeAutoStand,
+  showHotkeys,
+  onChangeShowHotkeys,
+  showMenuButton,
+  onChangeShowMenuButton,
 }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -348,13 +356,29 @@ export default function MenuScreen({
               />
               Auto-stand (pop up when fast enough)
             </label>
+            <label style={{ ...settingRow, marginBottom: '0.7rem' }}>
+              <input
+                type="checkbox"
+                checked={showHotkeys}
+                onChange={(e) => onChangeShowHotkeys(e.target.checked)}
+              />
+              Show keyboard hotkeys in HUD
+            </label>
+            <label style={{ ...settingRow, marginBottom: '0.7rem' }}>
+              <input
+                type="checkbox"
+                checked={showMenuButton}
+                onChange={(e) => onChangeShowMenuButton(e.target.checked)}
+              />
+              Show Menu button in HUD
+            </label>
             <label style={settingRow}>
               <input
                 type="checkbox"
                 checked={showAdvancedOptions}
                 onChange={(e) => onChangeShowAdvancedOptions(e.target.checked)}
               />
-              Show advanced options
+              Show advanced options on HUD
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
