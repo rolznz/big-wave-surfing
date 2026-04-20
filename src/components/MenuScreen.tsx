@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LEVELS, LevelConfig } from '../game/levels';
+import { isTouchPrimary } from '../util/isTouchPrimary';
 
 interface Props {
   onPlay: (level: LevelConfig) => void;
@@ -15,12 +16,12 @@ const wrap: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  justifyContent: 'center',
+  justifyContent: 'flex-start',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
   color: '#fff',
   background: 'linear-gradient(180deg, #053047 0%, #0a5f86 55%, #0e85a8 100%)',
-  padding: '2rem',
-  gap: '2rem',
+  padding: 'clamp(1rem, 3vw, 2rem)',
+  gap: 'clamp(1rem, 3vw, 2rem)',
   overflowY: 'auto',
 };
 
@@ -41,9 +42,9 @@ const subtitle: React.CSSProperties = {
 
 const grid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 320px))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 20rem))',
   gap: '1rem',
-  width: 'min(90vw, 1100px)',
+  width: 'min(100%, 1100px)',
   justifyContent: 'center',
 };
 
@@ -81,12 +82,11 @@ const cardMeta: React.CSSProperties = {
 };
 
 const topRightBar: React.CSSProperties = {
-  position: 'fixed',
-  top: '1.5rem',
-  right: '1.5rem',
   display: 'flex',
   alignItems: 'center',
   gap: '0.5rem',
+  flexWrap: 'wrap',
+  justifyContent: 'center',
 };
 
 const topRightButton: React.CSSProperties = {
@@ -158,6 +158,47 @@ const modalClose: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+const helpPanel: React.CSSProperties = {
+  ...modalPanel,
+  maxWidth: 'min(34rem, 92vw)',
+};
+
+const helpIntro: React.CSSProperties = {
+  fontSize: '0.95rem',
+  lineHeight: 1.5,
+  opacity: 0.9,
+  marginBottom: '1.2rem',
+};
+
+const controlsTable: React.CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  fontSize: '0.9rem',
+};
+
+const controlsTh: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '0.4rem 0.6rem',
+  borderBottom: '1px solid rgba(255,255,255,0.25)',
+  fontWeight: 600,
+  letterSpacing: '0.03em',
+  textTransform: 'uppercase',
+  fontSize: '0.75rem',
+};
+
+const controlsTd: React.CSSProperties = {
+  padding: '0.4rem 0.6rem',
+  borderBottom: '1px solid rgba(255,255,255,0.08)',
+};
+
+const colDim: React.CSSProperties = {
+  opacity: 0.45,
+};
+
+const colHighlight: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.08)',
+};
+
 function difficultyStars(l: LevelConfig): string {
   const filled = Math.max(0, Math.min(5, l.difficulty));
   return '★'.repeat(filled) + '☆'.repeat(5 - filled);
@@ -171,10 +212,21 @@ export default function MenuScreen({
   onChangeAutoStand,
 }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <div style={wrap}>
+      <h1 style={title}>Big Wave Surfing</h1>
+      <div style={subtitle}>Pick a wave.</div>
       <div style={topRightBar}>
+        <button
+          type="button"
+          style={topRightButton}
+          onClick={() => setHelpOpen(true)}
+          aria-label="Help"
+        >
+          ❓ Help
+        </button>
         <button
           type="button"
           style={topRightButton}
@@ -202,8 +254,6 @@ export default function MenuScreen({
           GitHub
         </a>
       </div>
-      <h1 style={title}>Big Wave Surfing</h1>
-      <div style={subtitle}>Pick a wave.</div>
       <div style={grid}>
         {LEVELS.map((level) => (
           <button
@@ -230,6 +280,61 @@ export default function MenuScreen({
           </button>
         ))}
       </div>
+
+      {helpOpen && (
+        <div style={modalBackdrop} onClick={() => setHelpOpen(false)}>
+          <div style={helpPanel} onClick={(e) => e.stopPropagation()}>
+            <h2 style={modalTitle}>How to play</h2>
+            <p style={helpIntro}>
+              Paddle out, pop up at the right moment, and ride the wave to the
+              beach. Collect ★ along the way — you need a minimum to complete
+              each wave. Don't get crushed by the curl, and don't fall behind:
+              if the wave passes you, it's a wipeout.
+            </p>
+            <table style={controlsTable}>
+              <thead>
+                <tr>
+                  <th style={controlsTh}>Action</th>
+                  <th style={{ ...controlsTh, ...(isTouchPrimary ? colDim : colHighlight) }}>
+                    Keyboard
+                  </th>
+                  <th style={{ ...controlsTh, ...(isTouchPrimary ? colHighlight : colDim) }}>
+                    Touch
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['Paddle / steer', '↑ / W + ← →', 'drag forward — surfer follows your finger'],
+                  ['Brake / reverse aim', '↓ / S', 'drag back — surfer faces away from your finger'],
+                  ['Pop up · go prone', 'Space', 'two-finger tap'],
+                  ['Cycle camera', 'C', 'three-finger tap'],
+                  ['Retry', 'R', 'Menu → Retry'],
+                ].map(([action, kb, touch]) => (
+                  <tr key={action}>
+                    <td style={controlsTd}>{action}</td>
+                    <td style={{ ...controlsTd, ...(isTouchPrimary ? colDim : colHighlight) }}>
+                      {kb}
+                    </td>
+                    <td style={{ ...controlsTd, ...(isTouchPrimary ? colHighlight : colDim) }}>
+                      {touch}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                style={modalClose}
+                onClick={() => setHelpOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && (
         <div style={modalBackdrop} onClick={() => setSettingsOpen(false)}>

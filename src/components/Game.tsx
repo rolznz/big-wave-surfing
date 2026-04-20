@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createScene } from '../game/createScene';
-import { createLoop, GameStatus } from '../game/loop';
+import { createLoop, GameStatus, TouchIndicatorState } from '../game/loop';
 import { LevelConfig, LEVELS } from '../game/levels';
 import { SURFER_X_LIMIT } from '../game/constants';
 import HUD from './HUD';
+import TouchIndicator from './TouchIndicator';
 
 interface Props {
   level: LevelConfig;
@@ -39,6 +40,7 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
   const [runKey, setRunKey] = useState(0);
   const [status, setStatus] = useState<GameStatus>(() => initialStatus(level));
   const [wireframe, setWireframe] = useState(false);
+  const [touchIndicator, setTouchIndicator] = useState<TouchIndicatorState | null>(null);
 
   // Re-initialise status whenever level or runKey changes.
   useEffect(() => {
@@ -54,12 +56,16 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
     if (!canvas) return;
 
     const bs = createScene(canvas);
-    const loop = createLoop(bs, setStatus, level, { autoStand: autoStandRef });
+    const loop = createLoop(bs, setStatus, level, {
+      autoStand: autoStandRef,
+      onTouchIndicator: setTouchIndicator,
+    });
     toggleWireframeRef.current = loop.toggleWireframe;
 
     return () => {
       loop.stop();
       bs.dispose();
+      setTouchIndicator(null);
     };
   }, [level, runKey]);
 
@@ -122,6 +128,7 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
         onExit={onExit}
         hasNextLevel={hasNextLevel}
       />
+      <TouchIndicator state={touchIndicator} />
     </>
   );
 }

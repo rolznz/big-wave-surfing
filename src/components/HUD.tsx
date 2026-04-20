@@ -1,5 +1,6 @@
 import type { GameStatus, RunStats } from '../game/loop';
 import type { LevelConfig } from '../game/levels';
+import { isTouchPrimary } from '../util/isTouchPrimary';
 
 interface Props {
   status: GameStatus;
@@ -273,15 +274,17 @@ export default function HUD({
             Menu
           </button>
         </div>
-        <div style={hint}>
-          {stance === 'prone'
-            ? (showAdvancedOptions
-                ? '↑ Paddle  ↓ Brake  ← → Steer  ␣ Stand up  C Camera  R Retry'
-                : '↑ Paddle  ↓ Brake  ← → Steer')
-            : (showAdvancedOptions
-                ? '↓ Brake  ← → Carve  ␣ Go prone  C Camera  R Retry'
-                : '↓ Brake  ← → Carve')}
-        </div>
+        {!isTouchPrimary && (
+          <div style={hint}>
+            {stance === 'prone'
+              ? (showAdvancedOptions
+                  ? '↑ Paddle  ↓ Brake  ← → Steer  ␣ Stand up  C Camera  R Retry'
+                  : '↑ Paddle  ↓ Brake  ← → Steer')
+              : (showAdvancedOptions
+                  ? '↓ Brake  ← → Carve  ␣ Go prone  C Camera  R Retry'
+                  : '↓ Brake  ← → Carve')}
+          </div>
+        )}
       </>
     );
   }
@@ -334,9 +337,11 @@ export default function HUD({
           Menu
         </button>
       </div>
-      <div style={{ ...sub, marginTop: '1rem', opacity: 0.6 }}>
-        {enterHint}
-      </div>
+      {!isTouchPrimary && (
+        <div style={{ ...sub, marginTop: '1rem', opacity: 0.6 }}>
+          {enterHint}
+        </div>
+      )}
     </div>
   );
 }

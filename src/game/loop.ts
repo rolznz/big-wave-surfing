@@ -59,6 +59,27 @@ export interface LoopHandle {
 export interface LoopOptions {
   /** Live-readable flag: when true, surfer auto-pops from prone to standing once fast enough. */
   autoStand: { current: boolean };
+  /** Optional: receives joystick-overlay state on touch drag. Called with null on touch end / cancel. */
+  onTouchIndicator?: (state: TouchIndicatorState | null) => void;
+}
+
+export type TouchMode = 'paddle' | 'brake';
+
+export interface TouchIndicatorState {
+  /** Touch origin (clientX/Y of the initial touchstart). */
+  originX: number;
+  originY: number;
+  /** Current finger position (clientX/Y). */
+  currentX: number;
+  currentY: number;
+  /** surferAngle captured at touchstart — defines the reference for paddle vs brake mode lock. */
+  snapshotHeading: number;
+  /** Locked mode for the current drag, or null when inside the deadzone. */
+  mode: TouchMode | null;
+}
+
+function wrapPi(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
 interface TrailSlice {
@@ -219,9 +240,133 @@ export function createLoop(
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
+
+  // ── Touch input ───────────────────────────────────────────────────────────
+  // Single-finger drag: the strongest axis from the touch origin maps to one
+  // of the four directional inputs (vertical is inverted vs. arrow keys, so
+  // pulling the finger down → paddle, like a paddle stroke).
+  // Two-finger touch: toggles stance (replaces Space).
+  const TOUCH_DEADZONE = 20;
+  let touchOriginX = 0;
+  let touchOriginY = 0;
+  let touchStartAngle = 0;
+  let touchActive = false;
+  let touchMode: TouchMode | null = null;
+  let touchHeadingTarget: number | null = null;
+  let lastTouchTurnSign: -1 | 0 | 1 = 0;
+
+  function clearDirectionalInput() {
+    input.left = false;
+    input.right = false;
+    input.up = false;
+    input.down = false;
+  }
+
+  function emitIndicator(state: TouchIndicatorState | null) {
+    opts.onTouchIndicator?.(state);
+  }
+
+  function onTouchStart(e: TouchEvent) {
+    e.preventDefault();
+    if (e.touches.length >= 3) {
+      clearDirectionalInput();
+      touchActive = false;
+      touchMode = null;
+      touchHeadingTarget = null;
+      lastTouchTurnSign = 0;
+      emitIndicator(null);
+      cycleCameraMode();
+      return;
+    }
+    if (e.touches.length === 2) {
+      clearDirectionalInput();
+      touchActive = false;
+      touchMode = null;
+      touchHeadingTarget = null;
+      lastTouchTurnSign = 0;
+      emitIndicator(null);
+      toggleStance();
+      return;
+    }
+    const t = e.touches[0];
+    touchOriginX = t.clientX;
+    touchOriginY = t.clientY;
+    touchStartAngle = surferAngle;
+    touchActive = true;
+    touchMode = null;
+    touchHeadingTarget = null;
+    lastTouchTurnSign = 0;
+    clearDirectionalInput();
+    emitIndicator({
+      originX: touchOriginX,
+      originY: touchOriginY,
+      currentX: touchOriginX,
+      currentY: touchOriginY,
+      snapshotHeading: touchStartAngle,
+      mode: null,
+    });
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    if (!touchActive || e.touches.length !== 1) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const rawDx = t.clientX - touchOriginX;
+    const rawDy = t.clientY - touchOriginY;
+    const len = Math.hypot(rawDx, rawDy);
+
+    if (len < TOUCH_DEADZONE) {
+      clearDirectionalInput();
+      touchMode = null;
+      touchHeadingTarget = null;
+      lastTouchTurnSign = 0;
+    } else {
+      // Drag direction → world heading using same convention as surferAngle
+      // (fwd = (sin θ, -cos θ)). Drag straight down (rawDy > 0) → θ = π,
+      // matching the initial surferAngle = π.
+      const dragAngle = Math.atan2(rawDx, -rawDy);
+      if (touchMode === null) {
+        const delta = wrapPi(dragAngle - touchStartAngle);
+        touchMode = Math.abs(delta) < Math.PI / 2 ? 'paddle' : 'brake';
+      }
+      touchHeadingTarget = touchMode === 'brake'
+        ? wrapPi(dragAngle + Math.PI)
+        : dragAngle;
+      input.up = touchMode === 'paddle';
+      input.down = touchMode === 'brake';
+      input.left = false;
+      input.right = false;
+    }
+
+    emitIndicator({
+      originX: touchOriginX,
+      originY: touchOriginY,
+      currentX: t.clientX,
+      currentY: t.clientY,
+      snapshotHeading: touchStartAngle,
+      mode: touchMode,
+    });
+  }
+
+  function onTouchEnd(e: TouchEvent) {
+    if (e.touches.length === 0) {
+      clearDirectionalInput();
+      touchActive = false;
+      touchMode = null;
+      touchHeadingTarget = null;
+      lastTouchTurnSign = 0;
+      emitIndicator(null);
+    }
+  }
+
+  const canvasEl = renderer.domElement;
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('resize', onResize);
+  canvasEl.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
+  canvasEl.addEventListener('touchend', onTouchEnd);
+  canvasEl.addEventListener('touchcancel', onTouchEnd);
 
   function toggleStance(): void {
     if (phase !== 'surfing') return;
@@ -279,6 +424,30 @@ export function createLoop(
     if (input.left)  surferAngle -= P.TURN_SPEED * dt;
     if (input.right) surferAngle += P.TURN_SPEED * dt;
 
+    // Touch heading: rotate toward drag-derived target. Touch users aim with
+    // their finger and expect snappy response, so we boost above keyboard
+    // TURN_SPEED — keyboard taps are discrete (you don't see what you're
+    // committing to until you've turned), but a touch drag is continuous and
+    // self-correcting, so a faster rate doesn't overshoot in practice.
+    let touchTurning = false;
+    if (touchHeadingTarget !== null) {
+      const err = wrapPi(touchHeadingTarget - surferAngle);
+      const step = P.TURN_SPEED * 2.5 * dt;
+      if (Math.abs(err) <= step) surferAngle = touchHeadingTarget;
+      else surferAngle += Math.sign(err) * step;
+
+      touchTurning = Math.abs(err) > 0.01;
+
+      // Count carve flips while in paddle mode (sign of err crosses 0).
+      if (touchMode === 'paddle' && phase === 'surfing') {
+        const sign: -1 | 0 | 1 = err > 0.05 ? 1 : err < -0.05 ? -1 : 0;
+        if (sign !== 0 && lastTouchTurnSign !== 0 && sign !== lastTouchTurnSign) {
+          turns++;
+        }
+        if (sign !== 0) lastTouchTurnSign = sign;
+      }
+    }
+
     const fwdX =  Math.sin(surferAngle);
     const fwdZ = -Math.cos(surferAngle);
 
@@ -317,7 +486,7 @@ export function createLoop(
     const vLatZ   = surferVZ - vDotFwd * fwdZ;
     const latSpeed = Math.hypot(vLatX, vLatZ);
     if (latSpeed > 0) {
-      const turning = (input.left || input.right) ? 1 : 0;
+      const turning = (input.left || input.right || touchTurning) ? 1 : 0;
       const gripRate = P.FIN_GRIP_BASE + turning * P.FIN_GRIP_TURNING;
       const bleed = Math.min(latSpeed, gripRate * dt);
       surferVX -= (vLatX / latSpeed) * bleed;
@@ -664,6 +833,10 @@ export function createLoop(
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('resize', onResize);
+    canvasEl.removeEventListener('touchstart', onTouchStart);
+    canvasEl.removeEventListener('touchmove', onTouchMove);
+    canvasEl.removeEventListener('touchend', onTouchEnd);
+    canvasEl.removeEventListener('touchcancel', onTouchEnd);
     wave.dispose();
     spray.dispose();
     character.dispose();
