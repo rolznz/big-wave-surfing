@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import Game from './components/Game';
 import MenuScreen from './components/MenuScreen';
-import type { LevelConfig } from './game/levels';
+import { LEVELS, type LevelConfig } from './game/levels';
 
 const ADVANCED_OPTIONS_KEY = 'bws.showAdvancedOptions';
 const AUTO_STAND_KEY = 'bws.autoStand';
+const CURRENT_LEVEL_KEY = 'bws.currentLevelId';
 
 function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -26,7 +27,16 @@ function writeBool(key: string, value: boolean): void {
 }
 
 export default function App() {
-  const [level, setLevel] = useState<LevelConfig | null>(null);
+  const [level, setLevel] = useState<LevelConfig | null>(() => {
+    try {
+      const id = localStorage.getItem(CURRENT_LEVEL_KEY);
+      const saved = LEVELS.find((l) => l.id === id);
+      if (saved) return saved;
+    } catch {
+      // ignore
+    }
+    return LEVELS[0] ?? null;
+  });
   const [showAdvancedOptions, setShowAdvancedOptions] = useState<boolean>(
     () => readBool(ADVANCED_OPTIONS_KEY, false),
   );
@@ -41,6 +51,15 @@ export default function App() {
   useEffect(() => {
     writeBool(AUTO_STAND_KEY, autoStand);
   }, [autoStand]);
+
+  useEffect(() => {
+    try {
+      if (level) localStorage.setItem(CURRENT_LEVEL_KEY, level.id);
+      else localStorage.removeItem(CURRENT_LEVEL_KEY);
+    } catch {
+      // ignore
+    }
+  }, [level]);
 
   const onExit = useCallback(() => setLevel(null), []);
   const onPickLevel = useCallback((l: LevelConfig) => setLevel(l), []);
