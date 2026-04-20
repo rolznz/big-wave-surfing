@@ -39,7 +39,7 @@ export const FLAT_OCEAN_D = 6000;
 export const FLAT_OCEAN_Y = 0.05;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
-export const SURFER_START_X = -150;
+export const SURFER_START_X = -200;
 export const SURFER_START_Z = -50;
 export const SURFER_X_LIMIT = 240;
 
@@ -48,7 +48,7 @@ export const SURFER_X_LIMIT = 240;
 // fins barely engaged.
 export const PRONE_PHYSICS = {
   PADDLE_THRUST:    20,
-  WATER_DRAG:       5.0,
+  WATER_DRAG:       4.0,
   BRAKE_DRAG:       10.0,
   TURN_SPEED:       1.5,
   WAVE_PUSH_FACTOR: 2.5,

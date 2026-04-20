@@ -77,13 +77,13 @@ export default function App() {
     }
   }, [level]);
 
-  useEffect(() => {
+  /*useEffect(() => {
     if (level) return;
     const sp = new URLSearchParams(window.location.search);
     if (sp.get('portal') === 'true' && LEVELS[0]) {
       setLevel(LEVELS[0]);
     }
-  }, [level]);
+  }, [level]);*/
 
   const onExit = useCallback(() => setLevel(null), []);
   const onPickLevel = useCallback((l: LevelConfig) => setLevel(l), []);

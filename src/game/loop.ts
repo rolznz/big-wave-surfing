@@ -21,6 +21,7 @@ import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelGoalX, levelMinStar
 import { mulberry32 } from './rng';
 import { createObstacles, type ObstacleSystem } from './obstacles';
 import { createStars, type StarSystem } from './stars';
+import { createPortals } from './portals';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,14 +133,29 @@ export function createLoop(
   const character = new Character();
   rig.add(character.root);
 
+  const portals = createPortals(scene, rig, {
+    spawnX: SURFER_START_X,
+    spawnY: 20,
+    // Start portal rides the wave frame so it stays reachable as the wave scrolls.
+    spawnZOffset: SURFER_START_Z - WAVE_START_Z - 40,
+    exitX: goalX - 30,
+    exitY: 0,
+    exitZOffset: 30,
+  });
+
   // ── State ─────────────────────────────────────────────────────────────────
   let phase: GamePhase = 'surfing';
   let stance: Stance = 'prone';
   let cameraMode: CameraMode = 'fixed';
   let surferX   = SURFER_START_X;
   let surferZ   = SURFER_START_Z;
+  if (portals.hasPortals) {
+    surferZ -= 40;
+  }
   let surferVX  = 0;
-  let surferVZ  = 0;
+  // When arriving via a portal, pop out with forward (+Z) momentum so there's
+  // no motionless-on-load moment.
+  let surferVZ  = portals.hasPortals ? 15 : 0;
   let surferAngle = Math.PI;
   let breakX    = BREAK_START_X;
   let rideTime  = 0;
@@ -800,6 +816,7 @@ export function createLoop(
       waveHeightAt(z, wave.waveZ, x, breakX, peakAmp);
     obstacleSys.update(wave.waveZ, sampleHeight);
     starSys.update(wave.waveZ, sampleHeight, dt);
+    portals.update(dt, wave.waveZ, breakX);
 
     rebuildTrail(now);
     updateCamera(dt);
@@ -845,6 +862,7 @@ export function createLoop(
     trailMat.dispose();
     obstacleSys.dispose();
     starSys.dispose();
+    portals.dispose();
   }
 
   return { stop, toggleWireframe };
