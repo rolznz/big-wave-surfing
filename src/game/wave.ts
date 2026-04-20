@@ -109,19 +109,29 @@ function makeFoamTexture(rng: Rng): THREE.Texture {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, size, size);
-  // Scatter 1800 soft white bubbles with varying size and opacity
+  // Scatter 1800 soft white bubbles with varying size and opacity.
+  // Each bubble is drawn at its 9 wrapped positions (3x3 grid of ±size offsets)
+  // so bubbles straddling the canvas edge appear on both sides — required for
+  // seamless tiling under RepeatWrapping.
   for (let i = 0; i < 1800; i++) {
     const x = rng() * size;
     const y = rng() * size;
     const r = 1.5 + rng() * 14;
     const a = 0.2 + rng() * 0.6;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, `rgba(255,255,255,${a})`);
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const cx = x + dx * size;
+        const cy = y + dy * size;
+        if (cx + r < 0 || cx - r > size || cy + r < 0 || cy - r > size) continue;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0, `rgba(255,255,255,${a})`);
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
