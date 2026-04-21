@@ -3,7 +3,6 @@ import { BaseScene } from './createScene';
 import { WaveOcean, waveHeightAt } from './wave';
 import { Character } from './character';
 import { Board } from './board';
-import { createSpray } from './spray';
 import {
   WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
@@ -117,7 +116,6 @@ export function createLoop(
     breakSpeed,
     rng,
   });
-  const spray = createSpray(scene, rng, peakAmp);
   const obstacleSys: ObstacleSystem = createObstacles(scene, level, rng);
   const starSys: StarSystem = createStars(scene, level, rng, obstacleSys.obstacles);
 
@@ -806,11 +804,9 @@ export function createLoop(
       updateRigTransform(gradX, gradZ);
       updateCharacterPose(dt);
       wave.update(dt, breakX, surferZ, surferX);
-      spray.update(dt, breakX, wave.waveZ, surferZ);
       emitTrailSlice(now);
     } else {
       wave.update(0, breakX, surferZ, surferX);
-      spray.update(dt, breakX, wave.waveZ, surferZ);
     }
     const sampleHeight = (x: number, z: number) =>
       waveHeightAt(z, wave.waveZ, x, breakX, peakAmp);
@@ -855,7 +851,6 @@ export function createLoop(
     canvasEl.removeEventListener('touchend', onTouchEnd);
     canvasEl.removeEventListener('touchcancel', onTouchEnd);
     wave.dispose();
-    spray.dispose();
     character.dispose();
     board.dispose();
     trailGeo.dispose();

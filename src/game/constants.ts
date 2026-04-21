@@ -134,10 +134,7 @@ export const FOAM_CHOP_STRENGTH = 0.9; // how much the normal is perturbed (0..1
 // Foam fades with wave height: becomes fully opaque once the local wave is at
 // this fraction of WAVE_AMP, so foam stays on the crest band and not across flat water.
 export const FOAM_HEIGHT_FRAC = 0.35;
-// Foam texture scrolls at this fraction of the wave's apparent speed. <1 makes
-// the wave visibly overtake the foam — conveys that the wave is rolling forward.
+// Surface-foam texture scrolls at this fraction of the wave's apparent speed.
+// <1 makes the wave visibly overtake the foam — conveys forward roll.
 export const FOAM_PARALLAX = 0.1;
 
-export const SPRAY_MAX_PARTICLES = 300;
-export const SPRAY_SPAWN_PER_SEC = 80;
-export const SPRAY_LIFETIME      = 1.5;

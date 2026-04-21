@@ -10,6 +10,8 @@ import {
   FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
   TRAIL_LIFT,
 } from './constants';
+import { createWhitewaterMaterial, WHITEWATER_ATTR } from './whitewater';
+import { makeSurfaceFoamTexture, createSurfaceFoamMaterial } from './surfaceFoam';
 import type { Rng } from './rng';
 
 // ─── Wave profile ────────────────────────────────────────────────────────────
@@ -42,12 +44,6 @@ export function waveHeightAt(
   const sigmaBack = WAVE_SIGMA_BACK + xDistClean / WAVE_X_SIGMA_SCALE;
   const sigma = rel >= 0 ? WAVE_SIGMA_FRONT : sigmaBack;
   return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
-}
-
-// Modulo that handles negatives correctly (JS `%` returns negative for negatives).
-function mod1(x: number): number {
-  const r = x - Math.floor(x);
-  return r;
 }
 
 // ─── Cheap 3D value noise (for foam surface chop) ────────────────────────────
@@ -100,46 +96,6 @@ function vertexColor(height: number, foam: number, out: THREE.Color): void {
   }
 }
 
-// ─── Foam overlay texture (generated once, no asset dependency) ──────────────
-
-function makeFoamTexture(rng: Rng): THREE.Texture {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, size, size);
-  // Scatter 1800 soft white bubbles with varying size and opacity.
-  // Each bubble is drawn at its 9 wrapped positions (3x3 grid of ±size offsets)
-  // so bubbles straddling the canvas edge appear on both sides — required for
-  // seamless tiling under RepeatWrapping.
-  for (let i = 0; i < 1800; i++) {
-    const x = rng() * size;
-    const y = rng() * size;
-    const r = 1.5 + rng() * 14;
-    const a = 0.2 + rng() * 0.6;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const cx = x + dx * size;
-        const cy = y + dy * size;
-        if (cx + r < 0 || cx - r > size || cy + r < 0 || cy - r > size) continue;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        grad.addColorStop(0, `rgba(255,255,255,${a})`);
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(12, 12);
-  return tex;
-}
-
 // ─── WaveOcean ───────────────────────────────────────────────────────────────
 
 export interface WaveOceanParams {
@@ -150,9 +106,16 @@ export interface WaveOceanParams {
   rng: Rng;
 }
 
+// Modulo that handles negatives correctly (JS `%` returns negative for negatives).
+function mod1(x: number): number {
+  const r = x - Math.floor(x);
+  return r;
+}
+
 export class WaveOcean {
   readonly mesh: THREE.Mesh;
-  readonly overlayMesh: THREE.Mesh;
+  readonly whitewaterMesh: THREE.Mesh;
+  readonly surfaceFoamMesh: THREE.Mesh;
   readonly flatMesh: THREE.Mesh;
 
   /** Current world-Z position of the wave crest. */
@@ -168,10 +131,18 @@ export class WaveOcean {
   private readonly normAttr: THREE.BufferAttribute;
   private readonly foamBuf: Float32Array;
 
-  private readonly overlayGeo: THREE.BufferGeometry;
-  private readonly overlayPosAttr: THREE.BufferAttribute;
-  private readonly overlayColAttr: THREE.BufferAttribute;
-  private readonly foamTex: THREE.Texture;
+  // Whitewater overlay: opaque foam on the broken/lip/trail regions.
+  private readonly wwGeo: THREE.BufferGeometry;
+  private readonly wwPosAttr: THREE.BufferAttribute;
+  private readonly wwMaskAttr: THREE.BufferAttribute;
+  private readonly wwMat: THREE.ShaderMaterial;
+
+  // Surface foam overlay: bubble texture across the whole wave face.
+  private readonly sfGeo: THREE.BufferGeometry;
+  private readonly sfPosAttr: THREE.BufferAttribute;
+  private readonly sfColAttr: THREE.BufferAttribute;
+  private readonly sfMat: THREE.MeshBasicMaterial;
+  private readonly sfTex: THREE.Texture;
 
   private readonly flatGeo: THREE.BufferGeometry;
 
@@ -225,29 +196,36 @@ export class WaveOcean {
     this.mesh.receiveShadow = true;
     scene.add(this.mesh);
 
-    // ── Foam overlay mesh (same topology, drawn above water) ─────────────
-    this.overlayGeo = new THREE.PlaneGeometry(WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z);
-    this.overlayGeo.rotateX(-Math.PI / 2);
-    this.overlayPosAttr = this.overlayGeo.attributes.position as THREE.BufferAttribute;
-    const overlayColorBuf = new Float32Array(count * 3);
-    this.overlayColAttr = new THREE.BufferAttribute(overlayColorBuf, 3);
-    this.overlayGeo.setAttribute('color', this.overlayColAttr);
+    const overlayPlane = () => {
+      const geo = new THREE.PlaneGeometry(WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z);
+      geo.rotateX(-Math.PI / 2);
+      return geo;
+    };
 
-    this.foamTex = makeFoamTexture(params.rng);
+    // ── Surface foam overlay: tiling bubble texture, vertex-color masked ──
+    this.sfGeo = overlayPlane();
+    this.sfPosAttr = this.sfGeo.attributes.position as THREE.BufferAttribute;
+    this.sfColAttr = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
+    this.sfGeo.setAttribute('color', this.sfColAttr);
+    this.sfTex = makeSurfaceFoamTexture(params.rng);
+    this.sfMat = createSurfaceFoamMaterial(this.sfTex);
+    this.surfaceFoamMesh = new THREE.Mesh(this.sfGeo, this.sfMat);
+    this.surfaceFoamMesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
+    this.surfaceFoamMesh.renderOrder = 1;
+    this.surfaceFoamMesh.frustumCulled = false;
+    scene.add(this.surfaceFoamMesh);
 
-    const overlayMat = new THREE.MeshBasicMaterial({
-      map: this.foamTex,
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-    this.overlayMesh = new THREE.Mesh(this.overlayGeo, overlayMat);
-    this.overlayMesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
-    this.overlayMesh.renderOrder = 1;   // draw after water, before board (renderOrder=2)
-    this.overlayMesh.frustumCulled = false;
-    scene.add(this.overlayMesh);
+    // ── Whitewater overlay: procedural shader for broken/lip/trail foam ──
+    this.wwGeo = overlayPlane();
+    this.wwPosAttr = this.wwGeo.attributes.position as THREE.BufferAttribute;
+    this.wwMaskAttr = new THREE.BufferAttribute(new Float32Array(count), 1);
+    this.wwGeo.setAttribute(WHITEWATER_ATTR, this.wwMaskAttr);
+    this.wwMat = createWhitewaterMaterial(params.startZ);
+    this.whitewaterMesh = new THREE.Mesh(this.wwGeo, this.wwMat);
+    this.whitewaterMesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
+    this.whitewaterMesh.renderOrder = 2;
+    this.whitewaterMesh.frustumCulled = false;
+    scene.add(this.whitewaterMesh);
   }
 
   /**
@@ -261,27 +239,33 @@ export class WaveOcean {
 
     const meshPosZ = surferZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.position.z = meshPosZ;
-    this.overlayMesh.position.z = meshPosZ;
+    this.whitewaterMesh.position.z = meshPosZ;
+    this.surfaceFoamMesh.position.z = meshPosZ;
 
     // Flat base plane follows the surfer so its edges stay fog-occluded no
     // matter how far the surfer travels.
     this.flatMesh.position.x = surferX;
     this.flatMesh.position.z = surferZ;
 
-    // Foam texture scroll: subtract surfer position so the on-screen scroll
-    // rate stays constant regardless of surfer speed. Without this, outrunning
-    // the wave made the texture appear to roll backward.
-    const worldPerUVy = WAVE_STRIP_D / this.foamTex.repeat.y;
-    const worldPerUVx = WAVE_STRIP_W / this.foamTex.repeat.x;
-    this.foamTex.offset.y = mod1(FOAM_PARALLAX * this.waveZ / worldPerUVy - surferZ / worldPerUVy);
-    this.foamTex.offset.x = mod1((this.breakSpeed * this.elapsed) / worldPerUVx);
+    this.wwMat.uniforms.uTime.value = this.elapsed;
+    this.wwMat.uniforms.uWaveZ.value = this.waveZ;
+
+    // Scroll surface foam texture so bubbles drift with the wave (slowly,
+    // per FOAM_PARALLAX) and along X with the break sweep, while cancelling
+    // out the mesh's own motion with the surfer.
+    const worldPerUVy = WAVE_STRIP_D / this.sfTex.repeat.y;
+    const worldPerUVx = WAVE_STRIP_W / this.sfTex.repeat.x;
+    this.sfTex.offset.y = mod1(FOAM_PARALLAX * this.waveZ / worldPerUVy - surferZ / worldPerUVy);
+    this.sfTex.offset.x = mod1((this.breakSpeed * this.elapsed) / worldPerUVx);
 
     const posAttr = this.posAttr;
     const colAttr = this.colAttr;
     const waveZ   = this.waveZ;
     const foamBuf = this.foamBuf;
-    const overlayPos = this.overlayPosAttr;
-    const overlayCol = this.overlayColAttr;
+    const wwPos   = this.wwPosAttr;
+    const wwMask  = this.wwMaskAttr;
+    const sfPos   = this.sfPosAttr;
+    const sfCol   = this.sfColAttr;
 
     // Z-band skip: outside this the wave's gaussian is <1% of amp, so we
     // flatten the water cheaply. X bounds are already handled by the strip's
@@ -300,8 +284,10 @@ export class WaveOcean {
         posAttr.setY(i, 0);
         colAttr.setXYZ(i, COL_DEEP.r, COL_DEEP.g, COL_DEEP.b);
         foamBuf[i] = 0;
-        overlayPos.setY(i, TRAIL_LIFT);
-        overlayCol.setXYZ(i, 0, 0, 0);
+        wwPos.setY(i, TRAIL_LIFT);
+        wwMask.setX(i, 0);
+        sfPos.setY(i, TRAIL_LIFT);
+        sfCol.setXYZ(i, 0, 0, 0);
         continue;
       }
 
@@ -312,29 +298,49 @@ export class WaveOcean {
       const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp) * edgeFactor;
       posAttr.setY(i, h);
 
-      // Foam: whitewater to the left of breakX, gated by local wave height so
-      // foam only paints on the crest band (not across flat water far from the
-      // wave in Z).
-      const foamDist = breakX - wx;
-      const foamX = Math.max(0, Math.min(1, foamDist / 4));
+      // ── Whitewater mask: opaque foam on broken side / lip / forward trail ──
       const heightFactor = Math.min(1, h / (this.peakAmp * FOAM_HEIGHT_FRAC));
-      const foam = foamX * heightFactor;
-      foamBuf[i] = foam;
 
-      vertexColor(h, foam, _tmp);
+      const foamDist = breakX - wx;                         // >0 on broken side
+      const foamX = Math.max(0, Math.min(1, foamDist / 4));
+      const crestFoam = foamX * heightFactor;
+
+      const lipDist = Math.abs(wx - breakX);
+      const lipMask = Math.max(0, 1 - lipDist / 3) * heightFactor;
+
+      const trailX = Math.max(0, Math.min(1, foamDist / 15));
+      const trailZFront = Math.max(0, Math.min(1, 1 - rel / 25));
+      const trailZBack  = Math.max(0, Math.min(1, (rel + 4) / 4));
+      const trailMask = trailX * trailZFront * trailZBack;
+
+      const whitewater = Math.max(crestFoam, lipMask * 1.4, trailMask * 0.85);
+      foamBuf[i] = crestFoam;   // only the crest foam drives normal perturbation
+
+      // ── Surface foam mask: subtle detail wherever there's a wave face ──
+      // Ramps up quickly so anything above a shallow threshold gets full
+      // detail; tapered down where the whitewater overlay is strong so we
+      // don't double up two white layers on the broken section.
+      const surfaceRamp = Math.min(1, h / (this.peakAmp * 0.15));
+      const surfaceMask = surfaceRamp * Math.max(0, 1 - whitewater);
+
+      vertexColor(h, crestFoam, _tmp);
       colAttr.setXYZ(i, _tmp.r, _tmp.g, _tmp.b);
 
-      // Foam overlay: same XZ, slightly above water; grayscale vertex color
-      // acts as a per-vertex foam mask multiplied with the bubble texture.
-      overlayPos.setY(i, h + TRAIL_LIFT);
-      const a = foam * 0.95;
-      overlayCol.setXYZ(i, a, a, a);
+      // Both overlays sit at the same height just above the water surface.
+      const overlayY = h + TRAIL_LIFT;
+      wwPos.setY(i, overlayY);
+      wwMask.setX(i, whitewater);
+      sfPos.setY(i, overlayY);
+      const a = surfaceMask * 0.1;
+      sfCol.setXYZ(i, a, a, a);
     }
 
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-    overlayPos.needsUpdate = true;
-    overlayCol.needsUpdate = true;
+    wwPos.needsUpdate = true;
+    wwMask.needsUpdate = true;
+    sfPos.needsUpdate = true;
+    sfCol.needsUpdate = true;
 
     this.geo.computeVertexNormals();
 
@@ -366,16 +372,19 @@ export class WaveOcean {
   setWireframe(on: boolean): void {
     (this.mesh.material as THREE.MeshPhongMaterial).wireframe = on;
     (this.flatMesh.material as THREE.MeshPhongMaterial).wireframe = on;
-    (this.overlayMesh.material as THREE.MeshBasicMaterial).wireframe = on;
+    this.wwMat.wireframe = on;
+    this.sfMat.wireframe = on;
   }
 
   dispose(): void {
     this.geo.dispose();
     (this.mesh.material as THREE.Material).dispose();
-    this.overlayGeo.dispose();
-    (this.overlayMesh.material as THREE.Material).dispose();
+    this.wwGeo.dispose();
+    this.wwMat.dispose();
+    this.sfGeo.dispose();
+    this.sfMat.dispose();
+    this.sfTex.dispose();
     this.flatGeo.dispose();
     (this.flatMesh.material as THREE.Material).dispose();
-    this.foamTex.dispose();
   }
 }
