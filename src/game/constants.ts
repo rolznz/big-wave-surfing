@@ -9,6 +9,15 @@ export const WAVE_PEAK_AHEAD_X  = 3;     // peak sits this far into the clean si
 export const WAVE_SPEED         = 10;    // units/sec toward +Z
 export const WAVE_START_Z       = -100;
 
+// ─── Wave face shading ───────────────────────────────────────────────────────
+// Per-vertex colour post-process applied on top of the height/foam ramp.
+// FACE_TINT_STRENGTH: how strongly the front face lerps toward COL_TRANSLUCENT
+//   at mid-face on the upper half of the wave. 0 = off, 1 = fully replaced.
+// BACK_DARKEN_STRENGTH: how much the back slope is darkened at one
+//   WAVE_SIGMA_BACK behind the crest. 0 = off, 1 = black at that distance.
+export const FACE_TINT_STRENGTH    = 0.65;
+export const BACK_DARKEN_STRENGTH  = 1;
+
 // ─── Breaking front (sweeps left → right along X) ────────────────────────────
 export const BREAK_START_X  = -235;
 export const BREAK_SPEED    = 5;

@@ -9,6 +9,7 @@ import {
   FOAM_CHOP_SCALE, FOAM_CHOP_SPEED, FOAM_CHOP_STRENGTH,
   FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
   TRAIL_LIFT,
+  FACE_TINT_STRENGTH, BACK_DARKEN_STRENGTH,
 } from './constants';
 import { createWhitewaterMaterial, WHITEWATER_ATTR } from './whitewater';
 import { makeSurfaceFoamTexture, createSurfaceFoamMaterial } from './surfaceFoam';
@@ -79,10 +80,11 @@ function noise3(x: number, y: number, z: number): number {
 
 // ─── Vertex colour helpers ────────────────────────────────────────────────────
 
-const COL_DEEP  = new THREE.Color(0x00304a);
-const COL_FACE  = new THREE.Color(0x0077aa);
-const COL_CREST = new THREE.Color(0x00ccff);
-const COL_FOAM  = new THREE.Color(0xddf5ff);
+const COL_DEEP        = new THREE.Color(0x00304a);
+const COL_FACE        = new THREE.Color(0x0077aa);
+const COL_CREST       = new THREE.Color(0x00ccff);
+const COL_FOAM        = new THREE.Color(0xddf5ff);
+const COL_TRANSLUCENT = new THREE.Color(0x40ddc8);   // backlit turquoise for the front face
 const _tmp = new THREE.Color();
 
 function vertexColor(height: number, foam: number, out: THREE.Color): void {
@@ -324,6 +326,24 @@ export class WaveOcean {
       const surfaceMask = surfaceRamp * Math.max(0, 1 - whitewater);
 
       vertexColor(h, crestFoam, _tmp);
+
+      // Front-face translucent tint: lerp toward backlit turquoise on the
+      // steep face. Strongest at mid-face (rel ≈ WAVE_SIGMA_FRONT) and on the
+      // upper half of the wave; suppressed where foam takes over.
+      if (rel > 0 && crestFoam < 0.05) {
+        const faceT   = Math.min(1, rel / WAVE_SIGMA_FRONT);
+        const heightT = Math.min(1, h / (this.peakAmp * 0.5));
+        _tmp.lerp(COL_TRANSLUCENT, faceT * heightT * FACE_TINT_STRENGTH);
+      }
+
+      // Back-of-wave darken: dim the gentle back slope so the crest reads as
+      // a divider between lit front and shaded back.
+      if (rel < 0) {
+        const backT = Math.min(1, -rel / WAVE_SIGMA_BACK);
+        const dim = 1 - backT * BACK_DARKEN_STRENGTH;
+        _tmp.r *= dim; _tmp.g *= dim; _tmp.b *= dim;
+      }
+
       colAttr.setXYZ(i, _tmp.r, _tmp.g, _tmp.b);
 
       // Both overlays sit at the same height just above the water surface.
