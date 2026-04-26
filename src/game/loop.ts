@@ -14,7 +14,7 @@ import {
   RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
-  CAMERA_FIXED, CAMERA_CHASE,
+  CAMERA_FIXED, CAMERA_CHASE, CAMERA_INTRO,
 } from './constants';
 import type { LevelConfig } from './levels';
 import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, levelGoalX, levelMinStars } from './levels';
@@ -179,10 +179,14 @@ export function createLoop(
   const input = { left: false, right: false, up: false, down: false };
 
   // Camera smooth targets — rebuilt each frame in updateCamera().
+  // Intro: scale offsets down at level start and ease back to 1.0 over
+  // CAMERA_INTRO.DURATION seconds for a "zoom out" reveal.
+  let introT = 0;
+  const introScale0 = CAMERA_INTRO.START_SCALE;
   const camTarget = new THREE.Vector3(
     SURFER_START_X,
-    CAMERA_FIXED.HEIGHT,
-    SURFER_START_Z + CAMERA_FIXED.DISTANCE,
+    CAMERA_FIXED.HEIGHT * introScale0,
+    SURFER_START_Z + CAMERA_FIXED.DISTANCE * introScale0,
   );
   const camLookTarget = new THREE.Vector3(
     SURFER_START_X,
@@ -764,10 +768,17 @@ export function createLoop(
   function updateCamera(dt: number): void {
     const rigY = rig.position.y;
 
+    introT = Math.min(introT + dt, CAMERA_INTRO.DURATION);
+    const introU = introT / CAMERA_INTRO.DURATION;
+    // easeOutCubic — quick reveal at first, settles into normal framing.
+    const introEase = 1 - Math.pow(1 - introU, 3);
+    const introScale = CAMERA_INTRO.START_SCALE
+      + (1 - CAMERA_INTRO.START_SCALE) * introEase;
+
     if (cameraMode === 'fixed') {
       // World-axis: always look toward -Z regardless of heading.
       const camX = surferX;
-      const camZ = surferZ + CAMERA_FIXED.DISTANCE;
+      const camZ = surferZ + CAMERA_FIXED.DISTANCE * introScale;
 
       // Clamp Y so the wave crest never occludes the shot when it rolls
       // between camera and surfer (surfer missed the wave / went down the back).
@@ -775,7 +786,7 @@ export function createLoop(
       const midZ = (surferZ + camZ) * 0.5;
       const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX, peakAmp, sigmaFront, sigmaBack);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_FIXED.MIN_CLEARANCE;
-      const camY = Math.max(rigY + CAMERA_FIXED.HEIGHT, minY);
+      const camY = Math.max(rigY + CAMERA_FIXED.HEIGHT * introScale, minY);
 
       camTarget.set(camX, camY, camZ);
       camLookTarget.set(
@@ -790,9 +801,9 @@ export function createLoop(
       // Forward bias only engages when riding sideways along the wave (|fwdX|
       // near 1). When facing +Z/-Z the heading-relative DISTANCE already
       // positions the camera clear of the crest, so no extra bias is needed.
-      const bias = CAMERA_CHASE.FORWARD_BIAS * Math.abs(fwdX);
-      const camX = surferX - fwdX * CAMERA_CHASE.DISTANCE;
-      const camZ = surferZ - fwdZ * CAMERA_CHASE.DISTANCE + bias;
+      const bias = CAMERA_CHASE.FORWARD_BIAS * Math.abs(fwdX) * introScale;
+      const camX = surferX - fwdX * CAMERA_CHASE.DISTANCE * introScale;
+      const camZ = surferZ - fwdZ * CAMERA_CHASE.DISTANCE * introScale + bias;
 
       // Clamp Y so the camera clears the wave surface at its own XZ and at the
       // midpoint toward the surfer (prevents the crest from occluding the view).
@@ -801,7 +812,7 @@ export function createLoop(
       const midZ = (surferZ + camZ) * 0.5;
       const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX, peakAmp, sigmaFront, sigmaBack);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_CHASE.MIN_CLEARANCE;
-      const camY = Math.max(rigY + CAMERA_CHASE.HEIGHT, minY);
+      const camY = Math.max(rigY + CAMERA_CHASE.HEIGHT * introScale, minY);
 
       camTarget.set(camX, camY, camZ);
       camLookTarget.set(

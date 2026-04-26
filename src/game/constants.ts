@@ -49,7 +49,7 @@ export const FLAT_OCEAN_Y = 0.05;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
 export const SURFER_START_X = -200;
-export const SURFER_START_Z = -50;
+export const SURFER_START_Z = -60;
 export const SURFER_X_LIMIT = 240;
 
 // ─── Stance physics profiles ─────────────────────────────────────────────────
@@ -139,6 +139,14 @@ export const CAMERA_CHASE = {
   // turns sideways and the heading-relative DISTANCE would pull the camera
   // back into the face of the wave.
   FORWARD_BIAS:  10,
+} as const;
+
+// Level-intro zoom: camera starts close to the surfer and eases out to normal
+// distance over DURATION seconds. Multiplier scales DISTANCE/HEIGHT in both
+// camera modes (and the chase FORWARD_BIAS) — 1.0 is the regular framing.
+export const CAMERA_INTRO = {
+  START_SCALE: 0.25,
+  DURATION:    5.0,
 } as const;
 
 // ─── Visual effects ──────────────────────────────────────────────────────────
