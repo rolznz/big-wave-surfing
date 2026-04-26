@@ -5,6 +5,7 @@ import { Character } from './character';
 import { Board } from './board';
 import {
   WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
+  WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
   MISSED_BY,
   SURFER_START_X, SURFER_START_Z, SURFER_X_LIMIT,
@@ -16,7 +17,7 @@ import {
   CAMERA_FIXED, CAMERA_CHASE,
 } from './constants';
 import type { LevelConfig } from './levels';
-import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelGoalX, levelMinStars } from './levels';
+import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, levelGoalX, levelMinStars } from './levels';
 import { mulberry32 } from './rng';
 import { createObstacles, type ObstacleSystem } from './obstacles';
 import { createStars, type StarSystem } from './stars';
@@ -105,6 +106,8 @@ export function createLoop(
   const peakAmp = levelWaveAmp(level, WAVE_AMP);
   const waveSpeed = levelWaveSpeed(level, WAVE_SPEED);
   const breakSpeed = levelBreakSpeed(level, BREAK_SPEED);
+  const sigmaFront = levelWaveThickness(level, WAVE_SIGMA_FRONT);
+  const sigmaBack = levelWaveThickness(level, WAVE_SIGMA_BACK);
   const goalX = levelGoalX(level);
   const starsRequired = levelMinStars(level);
 
@@ -114,6 +117,8 @@ export function createLoop(
     peakAmp,
     waveSpeed,
     breakSpeed,
+    sigmaFront,
+    sigmaBack,
     rng,
   });
   const obstacleSys: ObstacleSystem = createObstacles(scene, level, rng);
@@ -484,10 +489,10 @@ export function createLoop(
 
     // 3. Wave drive — gravity along slope, projected onto heading
     const eps = 0.5;
-    const gradX = (waveHeightAt(surferZ,       wave.waveZ, surferX + eps, breakX, peakAmp)
-                 - waveHeightAt(surferZ,       wave.waveZ, surferX - eps, breakX, peakAmp)) / (2 * eps);
-    const gradZ = (waveHeightAt(surferZ + eps, wave.waveZ, surferX,       breakX, peakAmp)
-                 - waveHeightAt(surferZ - eps, wave.waveZ, surferX,       breakX, peakAmp)) / (2 * eps);
+    const gradX = (waveHeightAt(surferZ,       wave.waveZ, surferX + eps, breakX, peakAmp, sigmaFront, sigmaBack)
+                 - waveHeightAt(surferZ,       wave.waveZ, surferX - eps, breakX, peakAmp, sigmaFront, sigmaBack)) / (2 * eps);
+    const gradZ = (waveHeightAt(surferZ + eps, wave.waveZ, surferX,       breakX, peakAmp, sigmaFront, sigmaBack)
+                 - waveHeightAt(surferZ - eps, wave.waveZ, surferX,       breakX, peakAmp, sigmaFront, sigmaBack)) / (2 * eps);
 
     const slopeAlongBoard = -gradX * fwdX - gradZ * fwdZ;
     const waveDrive = slopeAlongBoard * P.WAVE_PUSH_FACTOR;
@@ -549,7 +554,7 @@ export function createLoop(
     }
 
     // 10. Obstacle collision → wipeout.
-    const surferY = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp) + BOARD_LIFT;
+    const surferY = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack) + BOARD_LIFT;
     if (obstacleSys.check(surferX, surferY, surferZ, wave.waveZ)) {
       phase = 'wiped_out';
       character.setPose('wipeout_limp');
@@ -560,7 +565,7 @@ export function createLoop(
     starSys.tryCollect(surferX, surferY, surferZ, wave.waveZ);
 
     // 11. Wipeout check (whitewater overtakes surfer)
-    const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp);
+    const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack);
     if (waveHere > WIPEOUT_HEIGHT && breakX > surferX + WIPEOUT_GRACE) {
       phase = 'wiped_out';
       character.setPose('wipeout_limp');
@@ -573,7 +578,7 @@ export function createLoop(
   function updateRigTransform(gradX: number, gradZ: number): void {
     const nrmLen = Math.sqrt(gradX * gradX + 1 + gradZ * gradZ);
     const nX = -gradX / nrmLen, nY = 1 / nrmLen, nZ = -gradZ / nrmLen;
-    const waveH = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp);
+    const waveH = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack);
 
     rig.position.set(
       surferX + nX * BOARD_LIFT,
@@ -695,7 +700,7 @@ export function createLoop(
       const fade = Math.max(0, 1 - age / TRAIL_DURATION);
       const b = s.brightness * fade;
 
-      const currentY = waveHeightAt(s.z, wave.waveZ, s.x, breakX, peakAmp) + TRAIL_LIFT;
+      const currentY = waveHeightAt(s.z, wave.waveZ, s.x, breakX, peakAmp, sigmaFront, sigmaBack) + TRAIL_LIFT;
       const base = i * 2 * 3;
 
       trailPositions[base    ] = s.x - s.perpX * s.halfW;
@@ -744,9 +749,9 @@ export function createLoop(
 
       // Clamp Y so the wave crest never occludes the shot when it rolls
       // between camera and surfer (surfer missed the wave / went down the back).
-      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp);
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp, sigmaFront, sigmaBack);
       const midZ = (surferZ + camZ) * 0.5;
-      const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX, peakAmp);
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, camX, breakX, peakAmp, sigmaFront, sigmaBack);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_FIXED.MIN_CLEARANCE;
       const camY = Math.max(rigY + CAMERA_FIXED.HEIGHT, minY);
 
@@ -769,10 +774,10 @@ export function createLoop(
 
       // Clamp Y so the camera clears the wave surface at its own XZ and at the
       // midpoint toward the surfer (prevents the crest from occluding the view).
-      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp);
+      const waveAtCam = waveHeightAt(camZ, wave.waveZ, camX, breakX, peakAmp, sigmaFront, sigmaBack);
       const midX = (surferX + camX) * 0.5;
       const midZ = (surferZ + camZ) * 0.5;
-      const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX, peakAmp);
+      const waveAtMid = waveHeightAt(midZ, wave.waveZ, midX, breakX, peakAmp, sigmaFront, sigmaBack);
       const minY = Math.max(waveAtCam, waveAtMid) + CAMERA_CHASE.MIN_CLEARANCE;
       const camY = Math.max(rigY + CAMERA_CHASE.HEIGHT, minY);
 
@@ -809,7 +814,7 @@ export function createLoop(
       wave.update(0, breakX, surferZ, surferX);
     }
     const sampleHeight = (x: number, z: number) =>
-      waveHeightAt(z, wave.waveZ, x, breakX, peakAmp);
+      waveHeightAt(z, wave.waveZ, x, breakX, peakAmp, sigmaFront, sigmaBack);
     obstacleSys.update(wave.waveZ, sampleHeight);
     starSys.update(wave.waveZ, sampleHeight, dt);
     portals.update(dt, wave.waveZ, breakX);
