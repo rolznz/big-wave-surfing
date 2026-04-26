@@ -34,6 +34,8 @@ export function waveHeightAt(
   worldX = 0,
   breakX = 0,
   peakAmp: number = WAVE_AMP,
+  sigmaFrontBase: number = WAVE_SIGMA_FRONT,
+  sigmaBackBase: number = WAVE_SIGMA_BACK,
 ): number {
   const rel = worldZ - waveZ;
   const peakX = breakX + WAVE_PEAK_AHEAD_X;
@@ -42,8 +44,8 @@ export function waveHeightAt(
   const amp = peakAmp
     * Math.exp(-xDistClean  / WAVE_X_DECAY)
     * Math.exp(-xDistBroken / WAVE_X_BROKEN_DECAY);
-  const sigmaBack = WAVE_SIGMA_BACK + xDistClean / WAVE_X_SIGMA_SCALE;
-  const sigma = rel >= 0 ? WAVE_SIGMA_FRONT : sigmaBack;
+  const sigmaBack = sigmaBackBase + xDistClean / WAVE_X_SIGMA_SCALE;
+  const sigma = rel >= 0 ? sigmaFrontBase : sigmaBack;
   return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
 }
 
@@ -105,6 +107,8 @@ export interface WaveOceanParams {
   peakAmp: number;
   waveSpeed: number;
   breakSpeed: number;
+  sigmaFront: number;
+  sigmaBack: number;
   rng: Rng;
 }
 
@@ -126,6 +130,8 @@ export class WaveOcean {
   readonly peakAmp: number;
   readonly waveSpeed: number;
   readonly breakSpeed: number;
+  readonly sigmaFront: number;
+  readonly sigmaBack: number;
 
   private readonly geo: THREE.BufferGeometry;
   private readonly posAttr: THREE.BufferAttribute;
@@ -155,6 +161,8 @@ export class WaveOcean {
     this.peakAmp = params.peakAmp;
     this.waveSpeed = params.waveSpeed;
     this.breakSpeed = params.breakSpeed;
+    this.sigmaFront = params.sigmaFront;
+    this.sigmaBack = params.sigmaBack;
 
     // ── Flat base plane ──────────────────────────────────────────────────
     // Huge 4-vertex quad sitting just above y=0 to fill the horizon. The
@@ -297,7 +305,7 @@ export class WaveOcean {
       // borders so the wave blends into the flat base plane without a cliff.
       const edgeDist = halfStripW - Math.abs(wx);
       const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
-      const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp) * edgeFactor;
+      const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp, this.sigmaFront, this.sigmaBack) * edgeFactor;
       posAttr.setY(i, h);
 
       // ── Whitewater mask: opaque foam on broken side / lip / forward trail ──

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createScene } from '../game/createScene';
 import { createLoop, GameStatus, TouchIndicatorState } from '../game/loop';
-import { LevelConfig, LEVELS } from '../game/levels';
-import { SURFER_X_LIMIT } from '../game/constants';
+import { LevelConfig, LEVELS, levelGoalX } from '../game/levels';
 import HUD from './HUD';
 import TouchIndicator from './TouchIndicator';
 
@@ -25,7 +24,7 @@ function initialStatus(level: LevelConfig): GameStatus {
     rideTime: 0,
     speed: 0,
     progress: 0,
-    goalX: level.goalX ?? SURFER_X_LIMIT,
+    goalX: levelGoalX(level),
     starsCollected: 0,
     starsTotal: total,
     starsRequired: level.minStars ?? total,

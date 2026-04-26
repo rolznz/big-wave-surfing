@@ -1,4 +1,4 @@
-import { SURFER_X_LIMIT } from './constants';
+import { SURFER_START_X, SURFER_X_LIMIT } from './constants';
 
 export interface ObstacleSpec {
   kind: 'rock';
@@ -16,7 +16,10 @@ export interface LevelConfig {
   waveAmpMultiplier?: number;
   waveSpeedMultiplier?: number;
   breakSpeedMultiplier?: number;
-  goalX?: number;
+  /** Scales the wave's front-to-back thickness (sigma). >1 = wider/gentler, <1 = sharper/thinner. Default 1. */
+  waveThicknessMultiplier?: number;
+  /** Scales the lateral length of the level. 1 = full run from spawn to SURFER_X_LIMIT. 0.1 = a tenth of that. Default 1. */
+  gameDurationMultiplier?: number;
   obstacles?: ObstacleSpec[];
   /** Number of stars to scatter on the wave. Default 0. */
   numStars?: number;
@@ -34,6 +37,8 @@ export const LEVELS: LevelConfig[] = [
     waveAmpMultiplier: 0.7,
     waveSpeedMultiplier: 0.9,
     breakSpeedMultiplier: 0.8,
+    waveThicknessMultiplier: 1.4,
+    gameDurationMultiplier: 0.3,
     obstacles: [],
     numStars: 3,
     minStars: 2,
@@ -101,8 +106,12 @@ export function levelWaveSpeed(level: LevelConfig, baseSpeed: number): number {
 export function levelBreakSpeed(level: LevelConfig, baseSpeed: number): number {
   return baseSpeed * (level.breakSpeedMultiplier ?? 1);
 }
+export function levelWaveThickness(level: LevelConfig, baseSigma: number): number {
+  return baseSigma * (level.waveThicknessMultiplier ?? 1);
+}
 export function levelGoalX(level: LevelConfig): number {
-  return level.goalX ?? SURFER_X_LIMIT;
+  const m = level.gameDurationMultiplier ?? 1;
+  return SURFER_START_X + m * (SURFER_X_LIMIT - SURFER_START_X);
 }
 export function levelNumStars(level: LevelConfig): number {
   return level.numStars ?? 0;
