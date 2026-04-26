@@ -40,8 +40,8 @@ const ROCK_COLOR = 0x4a3a2a;
 // Rocks sit on the wave's front face — the steep side the surfer drops down.
 // The front face gaussian has sigma 10; 3–12 units ahead of the crest keeps
 // the rock visibly "on the wave" without perching on the crest itself.
-const Z_OFFSET_MIN = 5;
-const Z_OFFSET_MAX = 50;
+const Z_OFFSET_MIN = 0;
+const Z_OFFSET_MAX = 30;
 const MIN_SEPARATION = 12;
 
 function makeRockMesh(radius: number, rng: Rng): THREE.Mesh {
