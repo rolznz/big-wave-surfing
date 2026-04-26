@@ -29,14 +29,14 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   );
 
   // Sun — softer directional so the wave color can breathe.
-  const sun = new THREE.DirectionalLight(0xfff5cc, 0.1);
+  const sun = new THREE.DirectionalLight(0xfff5cc, 1.8);
   sun.position.set(15, 40, 20);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   scene.add(sun);
 
   // Fill / sky light
-  scene.add(new THREE.AmbientLight(0x88bbff, 4.0));
+  scene.add(new THREE.AmbientLight(0x88bbff, 2.0));
   const fillLight = new THREE.DirectionalLight(0xaaddff, 0.1);
   fillLight.position.set(-20, 10, -10);
   scene.add(fillLight);

@@ -16,7 +16,7 @@ export const WAVE_START_Z       = -100;
 // BACK_DARKEN_STRENGTH: how much the back slope is darkened at one
 //   WAVE_SIGMA_BACK behind the crest. 0 = off, 1 = black at that distance.
 export const FACE_TINT_STRENGTH    = 0.65;
-export const BACK_DARKEN_STRENGTH  = 1;
+export const BACK_DARKEN_STRENGTH  = 0.65;
 
 // ─── Breaking front (sweeps left → right along X) ────────────────────────────
 export const BREAK_START_X  = -235;
@@ -79,6 +79,11 @@ export const STANDING_PHYSICS = {
 
 // Speed the surfer must be doing to stand up (can't stand on a still board)
 export const POPUP_MIN_SPEED = 15;
+
+// Extra drag applied off the wave, scaled by (1 - waveCouple). Flat water
+// brakes the surfer hard so momentum from the wave bleeds off quickly once
+// they outrun the wave or get spat off the back.
+export const FLAT_WATER_DRAG = 2.0;
 
 // ─── Board / rig placement ───────────────────────────────────────────────────
 export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)

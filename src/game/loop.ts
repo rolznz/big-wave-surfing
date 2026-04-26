@@ -9,7 +9,7 @@ import {
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
   MISSED_BY,
   SURFER_START_X, SURFER_START_Z, SURFER_X_LIMIT,
-  PRONE_PHYSICS, STANDING_PHYSICS, POPUP_MIN_SPEED,
+  PRONE_PHYSICS, STANDING_PHYSICS, POPUP_MIN_SPEED, FLAT_WATER_DRAG,
   BOARD_LIFT, TRAIL_LIFT,
   RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
@@ -105,6 +105,7 @@ export function createLoop(
   const rng = mulberry32(level.seed);
   const peakAmp = levelWaveAmp(level, WAVE_AMP);
   const waveSpeed = levelWaveSpeed(level, WAVE_SPEED);
+  const waveSpeedMul = level.waveSpeedMultiplier ?? 1;
   const breakSpeed = levelBreakSpeed(level, BREAK_SPEED);
   const sigmaFront = levelWaveThickness(level, WAVE_SIGMA_FRONT);
   const sigmaBack = levelWaveThickness(level, WAVE_SIGMA_BACK);
@@ -494,10 +495,31 @@ export function createLoop(
     const gradZ = (waveHeightAt(surferZ + eps, wave.waveZ, surferX,       breakX, peakAmp, sigmaFront, sigmaBack)
                  - waveHeightAt(surferZ - eps, wave.waveZ, surferX,       breakX, peakAmp, sigmaFront, sigmaBack)) / (2 * eps);
 
+    // Wave-presence gate: 1 anywhere on the wave's body, ramping to 0 only on
+    // truly flat water. Uses local height as the wave indicator, then maps any
+    // height above WAVE_COUPLE_FULL_AT * peakAmp to a full 1, so riding the
+    // face (where local height < peak) still counts as fully on the wave.
+    const WAVE_COUPLE_FULL_AT = 0.25;
+    const waveHHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack);
+    const waveCouple = peakAmp > 0
+      ? Math.min(1, (waveHHere / peakAmp) / WAVE_COUPLE_FULL_AT)
+      : 0;
+
     const slopeAlongBoard = -gradX * fwdX - gradZ * fwdZ;
-    const waveDrive = slopeAlongBoard * P.WAVE_PUSH_FACTOR;
+    const waveDrive = slopeAlongBoard * P.WAVE_PUSH_FACTOR * waveSpeedMul * waveCouple;
     surferVX += fwdX * waveDrive * dt;
     surferVZ += fwdZ * waveDrive * dt;
+
+    // Lip carry — a +Z push concentrated near the crest line (where the
+    // front face becomes the back). Strongest right at rel = 0, falls off
+    // quickly on either side, so it holds the surfer to the lip without
+    // interfering with drops down the face. Disabled on brake.
+    if (!input.down) {
+      const ratio = peakAmp > 0 ? waveHHere / peakAmp : 0;
+      const lipCouple = ratio * ratio * ratio;
+      const carryAccel = WAVE_SPEED * waveSpeedMul * lipCouple;
+      surferVZ += carryAccel * dt;
+    }
 
     // 4. Fin constraint — bleed lateral (perpendicular-to-heading) velocity
     const vDotFwd = surferVX * fwdX + surferVZ * fwdZ;
@@ -506,14 +528,15 @@ export function createLoop(
     const latSpeed = Math.hypot(vLatX, vLatZ);
     if (latSpeed > 0) {
       const turning = (input.left || input.right || touchTurning) ? 1 : 0;
-      const gripRate = P.FIN_GRIP_BASE + turning * P.FIN_GRIP_TURNING;
+      const gripRate = (P.FIN_GRIP_BASE + turning * P.FIN_GRIP_TURNING) * waveSpeedMul;
       const bleed = Math.min(latSpeed, gripRate * dt);
       surferVX -= (vLatX / latSpeed) * bleed;
       surferVZ -= (vLatZ / latSpeed) * bleed;
     }
 
-    // 5. Drag
-    const drag = input.down ? P.WATER_DRAG + P.BRAKE_DRAG : P.WATER_DRAG;
+    // 5. Drag — base drag, plus flat-water drag where the wave isn't.
+    const baseDrag = input.down ? P.WATER_DRAG + P.BRAKE_DRAG : P.WATER_DRAG;
+    const drag = baseDrag + FLAT_WATER_DRAG * (1 - waveCouple);
     const speed = Math.hypot(surferVX, surferVZ);
     if (speed > 0) {
       const decel = Math.min(speed, drag * dt);
@@ -554,7 +577,7 @@ export function createLoop(
     }
 
     // 10. Obstacle collision → wipeout.
-    const surferY = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack) + BOARD_LIFT;
+    const surferY = waveHHere + BOARD_LIFT;
     if (obstacleSys.check(surferX, surferY, surferZ, wave.waveZ)) {
       phase = 'wiped_out';
       character.setPose('wipeout_limp');
@@ -565,8 +588,7 @@ export function createLoop(
     starSys.tryCollect(surferX, surferY, surferZ, wave.waveZ);
 
     // 11. Wipeout check (whitewater overtakes surfer)
-    const waveHere = waveHeightAt(surferZ, wave.waveZ, surferX, breakX, peakAmp, sigmaFront, sigmaBack);
-    if (waveHere > WIPEOUT_HEIGHT && breakX > surferX + WIPEOUT_GRACE) {
+    if (waveHHere > WIPEOUT_HEIGHT && breakX > surferX + WIPEOUT_GRACE) {
       phase = 'wiped_out';
       character.setPose('wipeout_limp');
     }
