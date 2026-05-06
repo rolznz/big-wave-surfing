@@ -27,6 +27,7 @@ import {
 } from './physics';
 import { ghostStore, GhostFrame } from './ghostStore';
 import { createGhostManager } from './ghosts';
+import { Ragdoll } from './ragdoll';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,8 @@ export function createLoop(
 
   const character = new Character();
   rig.add(character.root);
+
+  const ragdoll = new Ragdoll(scene, character, board);
 
   const portals = createPortals(scene, rig, {
     spawnX: SURFER_START_X,
@@ -495,7 +498,10 @@ export function createLoop(
     // 9. Miss — wave crest has passed the surfer by more than MISSED_BY.
     if (state.waveZ - state.z > MISSED_BY) {
       phase = 'missed_wave';
-      character.setPose('wipeout_limp');
+      // Place the rig on the wave once more so the ragdoll can sample joint
+      // world positions before we detach it.
+      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
+      ragdoll.activate(state, gradX, gradZ, physicsParams);
       return { gradX, gradZ };
     }
 
@@ -505,7 +511,8 @@ export function createLoop(
     const surferY = waveHHere + BOARD_LIFT;
     if (obstacleSys.check(state.x, surferY, state.z, state.waveZ)) {
       phase = 'wiped_out';
-      character.setPose('wipeout_limp');
+      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
+      ragdoll.activate(state, gradX, gradZ, physicsParams);
       return { gradX, gradZ };
     }
 
@@ -515,7 +522,8 @@ export function createLoop(
     // 11. Wipeout check (whitewater overtakes surfer)
     if (waveHHere > WIPEOUT_HEIGHT && state.breakX > state.x + WIPEOUT_GRACE) {
       phase = 'wiped_out';
-      character.setPose('wipeout_limp');
+      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
+      ragdoll.activate(state, gradX, gradZ, physicsParams);
     }
 
     return { gradX, gradZ };
@@ -695,7 +703,12 @@ export function createLoop(
       wave.update(dt, state.breakX, state.z, state.x);
       emitTrailSlice(now);
     } else {
-      wave.update(0, state.breakX, state.z, state.x);
+      // Wave keeps rolling so the ragdoll has live whitewater to tumble in.
+      // Advance state.waveZ at the same rate stepSurfer would, so the wave
+      // height field passed to ragdoll.step() stays consistent.
+      state.waveZ += physicsParams.waveSpeed * dt;
+      ragdoll.step(dt, state, physicsParams);
+      wave.update(dt, state.breakX, state.z, state.x);
     }
 
     const sampleHeight = (x: number, z: number) =>
@@ -744,6 +757,7 @@ export function createLoop(
     canvasEl.removeEventListener('touchmove', onTouchMove);
     canvasEl.removeEventListener('touchend', onTouchEnd);
     canvasEl.removeEventListener('touchcancel', onTouchEnd);
+    ragdoll.dispose();
     wave.dispose();
     character.dispose();
     board.dispose();

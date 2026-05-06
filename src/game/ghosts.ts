@@ -6,6 +6,7 @@ import {
   SurferState, PhysicsParams, PhysicsInput,
   stepSurfer, updateRigTransform, updateCharacterPose,
 } from './physics';
+import { Ragdoll } from './ragdoll';
 import {
   WAVE_START_Z, BREAK_START_X, SURFER_START_X, SURFER_START_Z,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
@@ -168,6 +169,7 @@ interface GhostInstance {
   rig: THREE.Group;
   character: Character;
   board: Board;
+  ragdoll: Ragdoll;
   trail: GhostTrail;
   pendingDt: number;
   frameIdx: number;
@@ -210,6 +212,8 @@ function createGhostInstance(
   const character = new Character(ghostCharacterMaterials());
   rig.add(character.root);
 
+  const ragdoll = new Ragdoll(scene, character, board);
+
   const state = makeInitialState(hasPortals);
   // Match live trail's initial-slice behavior: anchor lastSlice at the
   // un-offset spawn so the first slice (potentially ahead of the surfer
@@ -222,6 +226,7 @@ function createGhostInstance(
     rig,
     character,
     board,
+    ragdoll,
     trail,
     pendingDt: 0,
     frameIdx: 0,
@@ -234,6 +239,12 @@ function stepGhost(g: GhostInstance, params: PhysicsParams, liveDt: number): voi
   if (g.finished) {
     // Keep the trail fading even after the ghost stops.
     g.ghostTime += liveDt;
+    if (g.ragdoll.active) {
+      // Advance state.waveZ at the same rate stepSurfer would, so the ragdoll
+      // sees the wave continuing to roll past it.
+      g.state.waveZ += params.waveSpeed * liveDt;
+      g.ragdoll.step(liveDt, g.state, params);
+    }
     rebuildGhostTrail(g.trail, g.state, params, g.ghostTime);
     return;
   }
@@ -261,15 +272,16 @@ function stepGhost(g: GhostInstance, params: PhysicsParams, liveDt: number): voi
 
     const { gradX, gradZ } = stepSurfer(g.state, input, frame.dt, params);
 
-    if (frame.phase === 'wiped_out' || frame.phase === 'missed_wave') {
-      g.character.setPose('wipeout_limp');
-    }
-
     updateRigTransform(g.rig, g.state, gradX, gradZ, params);
     updateCharacterPose(g.character, g.state, input, frame.dt, frame.phase);
     emitGhostTrailSlice(g.trail, g.state, g.ghostTime);
 
-    if (frame.phase !== 'surfing') {
+    if (frame.phase === 'wiped_out' || frame.phase === 'missed_wave') {
+      // Activate ragdoll with the just-computed wave gradients so the body
+      // gets a wave-normal launch impulse matching the surfer's pose.
+      g.ragdoll.activate(g.state, gradX, gradZ, params);
+      g.finished = true;
+    } else if (frame.phase !== 'surfing') {
       g.finished = true;
     }
   }
@@ -282,6 +294,7 @@ function stepGhost(g: GhostInstance, params: PhysicsParams, liveDt: number): voi
 }
 
 function disposeGhost(scene: THREE.Scene, g: GhostInstance): void {
+  g.ragdoll.dispose();
   scene.remove(g.rig);
   g.character.dispose();
   g.board.dispose();

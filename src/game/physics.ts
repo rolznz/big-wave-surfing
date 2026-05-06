@@ -241,7 +241,7 @@ export function updateCharacterPose(
   dt: number,
   phase: GamePhase,
 ): void {
-  if (phase === 'wiped_out') return;
+  if (phase === 'wiped_out' || phase === 'missed_wave') return;
 
   if (s.stance === 'prone') {
     character.blendTo(input.up ? 'prone_paddle_l' : 'prone_neutral', 2, dt);
