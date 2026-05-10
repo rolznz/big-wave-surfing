@@ -177,6 +177,10 @@ export function createLoop(
     waveZ: WAVE_START_Z,
     breakX: BREAK_START_X,
     rideTime: 0,
+    airborne: false,
+    airY: 0,
+    airVY: 0,
+    speedHistory: [],
   };
 
   // Stats (reset per run).
@@ -496,7 +500,9 @@ export function createLoop(
     }
 
     // 9. Miss — wave crest has passed the surfer by more than MISSED_BY.
-    if (state.waveZ - state.z > MISSED_BY) {
+    //    Skipped while airborne: an air puts the surfer behind the crest by
+    //    definition, and a brief flight shouldn't end the run.
+    if (!state.airborne && state.waveZ - state.z > MISSED_BY) {
       phase = 'missed_wave';
       // Place the rig on the wave once more so the ragdoll can sample joint
       // world positions before we detach it.
@@ -508,7 +514,7 @@ export function createLoop(
     // 10. Obstacle collision → wipeout.
     const waveHHere = waveHeightAt(state.z, state.waveZ, state.x, state.breakX,
       peakAmp, sigmaFront, sigmaBack);
-    const surferY = waveHHere + BOARD_LIFT;
+    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + BOARD_LIFT;
     if (obstacleSys.check(state.x, surferY, state.z, state.waveZ)) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
@@ -519,8 +525,8 @@ export function createLoop(
     // 10b. Star pickup.
     starSys.tryCollect(state.x, surferY, state.z, state.waveZ);
 
-    // 11. Wipeout check (whitewater overtakes surfer)
-    if (waveHHere > WIPEOUT_HEIGHT && state.breakX > state.x + WIPEOUT_GRACE) {
+    // 11. Wipeout check (whitewater overtakes surfer) — skipped while airborne.
+    if (!state.airborne && waveHHere > WIPEOUT_HEIGHT && state.breakX > state.x + WIPEOUT_GRACE) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
       ragdoll.activate(state, gradX, gradZ, physicsParams);

@@ -80,6 +80,27 @@ export const STANDING_PHYSICS = {
 // Speed the surfer must be doing to stand up (can't stand on a still board)
 export const POPUP_MIN_SPEED = 15;
 
+// ─── Air (off-the-back launch) ───────────────────────────────────────────────
+// Auto-triggers when a standing surfer crosses the crest from front to back at
+// or above AIR_LAUNCH_MIN_SPEED. Launch upward velocity scales with speed.
+export const AIR_LAUNCH_MIN_SPEED = 3;     // min speed (units/sec) to launch
+// Board must be aimed within this many degrees of "into the wave" (i.e. toward
+// the crest / lip, which sits at -Z from the surfer on the front face) to
+// launch an air. A perpendicular down-the-line ride is 90° off, so anything
+// below 90 here disallows it. 0 = dead-on into the lip; bigger = looser gate.
+export const AIR_LAUNCH_MAX_ANGLE_DEG = 80;
+// How far in front of the crest (units, +Z from waveZ) the launch line sits.
+// 0 = trigger at the crest itself (surfer pops over the back). Bigger = pop
+// earlier on the upper face, before they're actually over the lip.
+export const AIR_LAUNCH_FRONT_OFFSET  = 4;
+export const AIR_LAUNCH_VY_FACTOR = 0.6;   // airVY = factor × speed at launch
+export const AIR_LAUNCH_PEAK_WINDOW = 2;   // seconds: jump height uses max speed seen in this trailing window, so decelerating up the face still gives a tall pop
+export const AIR_LAUNCH_VY_MAX    = 30;    // cap on launch upward velocity
+export const AIR_GRAVITY          = 30;    // units/sec² downward while airborne
+export const AIR_TURN_SPEED       = 7.5;   // rad/sec while airborne
+export const AIR_REDIRECT_RATE    = 5;     // per-second blend of velocity toward heading
+export const AIR_DRAG             = 0.5;   // mild horizontal damping in flight
+
 // Extra drag applied off the wave, scaled by (1 - waveCouple). Flat water
 // brakes the surfer hard so momentum from the wave bleeds off quickly once
 // they outrun the wave or get spat off the back.

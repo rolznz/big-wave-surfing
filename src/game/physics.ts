@@ -5,6 +5,9 @@ import {
   PRONE_PHYSICS, STANDING_PHYSICS, FLAT_WATER_DRAG,
   BREAK_START_X, SURFER_X_LIMIT, WAVE_SPEED,
   BOARD_LIFT, RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
+  AIR_LAUNCH_MIN_SPEED, AIR_LAUNCH_MAX_ANGLE_DEG, AIR_LAUNCH_FRONT_OFFSET,
+  AIR_LAUNCH_VY_FACTOR, AIR_LAUNCH_VY_MAX, AIR_LAUNCH_PEAK_WINDOW,
+  AIR_GRAVITY, AIR_TURN_SPEED, AIR_REDIRECT_RATE, AIR_DRAG,
 } from './constants';
 import type { GamePhase, Stance } from './loop';
 
@@ -18,6 +21,15 @@ export interface SurferState {
   waveZ: number;
   breakX: number;
   rideTime: number;
+  airborne: boolean;
+  airY: number;
+  airVY: number;
+  /**
+   * Trailing speed samples (rideTime, speed) inside AIR_LAUNCH_PEAK_WINDOW.
+   * Sampled while not airborne; used to size the launch pop from the surfer's
+   * recent peak speed rather than their current (potentially decelerated) speed.
+   */
+  speedHistory: { t: number; s: number }[];
 }
 
 export interface PhysicsInput {
@@ -62,9 +74,68 @@ export function stepSurfer(
   dt: number,
   params: PhysicsParams,
 ): StepResult {
+  const prevWaveZ = s.waveZ;
   s.rideTime += dt;
   s.waveZ += params.waveSpeed * dt;
 
+  if (s.airborne) {
+    // Heading: only keyboard left/right while airborne (touch is for surfing).
+    if (input.left)  s.angle -= AIR_TURN_SPEED * dt;
+    if (input.right) s.angle += AIR_TURN_SPEED * dt;
+
+    const fwdX =  Math.sin(s.angle);
+    const fwdZ = -Math.cos(s.angle);
+
+    // Velocity redirect — preserves speed, rotates the velocity vector toward
+    // the heading. This is what makes left/right "steer" the air.
+    const speedNow = Math.hypot(s.vx, s.vz);
+    if (speedNow > 0) {
+      const blend = Math.min(1, AIR_REDIRECT_RATE * dt);
+      const tgtX = fwdX * speedNow;
+      const tgtZ = fwdZ * speedNow;
+      s.vx += (tgtX - s.vx) * blend;
+      s.vz += (tgtZ - s.vz) * blend;
+    }
+
+    // Mild horizontal drag.
+    const speed = Math.hypot(s.vx, s.vz);
+    if (speed > 0) {
+      const decel = Math.min(speed, AIR_DRAG * dt);
+      s.vx -= (s.vx / speed) * decel;
+      s.vz -= (s.vz / speed) * decel;
+    }
+
+    // Vertical integrate.
+    s.airVY -= AIR_GRAVITY * dt;
+    s.airY  += s.airVY * dt;
+
+    // Horizontal integrate. While airborne, (vx, vz) hold the surfer's
+    // velocity *relative to the wave*. The wave's own forward motion is
+    // added back here so the surfer drifts with the wave by default and
+    // only changes wave-relative position from their own steering.
+    s.x += s.vx * dt;
+    s.z += (s.vz + params.waveSpeed) * dt;
+    s.x = Math.max(-SURFER_X_LIMIT, Math.min(SURFER_X_LIMIT, s.x));
+
+    // Break front advances even while airborne (matches surfing branch).
+    const breakRange = SURFER_X_LIMIT - BREAK_START_X;
+    s.breakX = BREAK_START_X + (params.breakSpeed * s.rideTime) % breakRange;
+
+    // Landing check.
+    const waveH = waveHeightAt(s.z, s.waveZ, s.x, s.breakX,
+      params.peakAmp, params.sigmaFront, params.sigmaBack);
+    if (s.airY <= waveH) {
+      s.airY = waveH;
+      s.airVY = 0;
+      s.vz += params.waveSpeed;
+      s.airborne = false;
+      s.speedHistory.length = 0;
+    }
+
+    return { gradX: 0, gradZ: 0, touchTurning: false };
+  }
+
+  const prevZ = s.z;
   const P = s.stance === 'prone' ? PRONE_PHYSICS : STANDING_PHYSICS;
 
   // 1. Rotate heading
@@ -156,6 +227,51 @@ export function stepSurfer(
   const breakRange = SURFER_X_LIMIT - BREAK_START_X;
   s.breakX = BREAK_START_X + (params.breakSpeed * s.rideTime) % breakRange;
 
+  // 8. Air launch — standing surfer crossing the lip from front to back at
+  //    sufficient speed launches into the air. Height scales with speed.
+  // Sample speed for the launch-pop window. Done after this frame's velocity
+  // updates and only while grounded — peak resets once the surfer's airborne
+  // and the in-flight redirect/drag would otherwise pollute it.
+  const speedNow = Math.hypot(s.vx, s.vz);
+  s.speedHistory.push({ t: s.rideTime, s: speedNow });
+  const cutoff = s.rideTime - AIR_LAUNCH_PEAK_WINDOW;
+  while (s.speedHistory.length > 0 && s.speedHistory[0].t < cutoff) {
+    s.speedHistory.shift();
+  }
+
+  // Launch line sits AIR_LAUNCH_FRONT_OFFSET in front of the crest, so the air
+  // pops as the surfer approaches the lip on the upper face — not after
+  // they've already gone over the back.
+  const prevLaunchLine = prevWaveZ + AIR_LAUNCH_FRONT_OFFSET;
+  const currLaunchLine = s.waveZ   + AIR_LAUNCH_FRONT_OFFSET;
+  if (s.stance === 'standing' && prevZ >= prevLaunchLine && s.z < currLaunchLine) {
+    // Only launch if the board is aimed within AIR_LAUNCH_MAX_ANGLE_DEG of
+    // "into the wave" (angle = 0 in our heading convention, i.e. fwd = -Z,
+    // toward the crest/lip the surfer is hitting). A near-perpendicular
+    // cutback is ~90° off and shouldn't pop an air.
+    const angleIntoWave = Math.abs(wrapPi(s.angle));
+    const maxAngleIntoWave = AIR_LAUNCH_MAX_ANGLE_DEG * Math.PI / 180;
+    if (speedNow >= AIR_LAUNCH_MIN_SPEED && angleIntoWave <= maxAngleIntoWave) {
+      // Pop height scales with the peak speed in the trailing window so
+      // hitting the wave face (which decelerates the surfer rapidly) still
+      // launches them properly.
+      let peakSpeed = speedNow;
+      for (let i = 0; i < s.speedHistory.length; i++) {
+        if (s.speedHistory[i].s > peakSpeed) peakSpeed = s.speedHistory[i].s;
+      }
+      s.airborne = true;
+      s.airY = waveHeightAt(s.z, s.waveZ, s.x, s.breakX,
+        params.peakAmp, params.sigmaFront, params.sigmaBack);
+      s.airVY = Math.min(AIR_LAUNCH_VY_MAX, peakSpeed * AIR_LAUNCH_VY_FACTOR);
+      // Convert vz to the wave's frame (it'll be added back during the
+      // airborne integrate). Clamp the wave-relative forward component so
+      // the surfer never starts the flight already losing ground to the
+      // wave — staying on the wave is the default; falling back has to
+      // come from the player actively steering backward in flight.
+      s.vz = Math.max(0, s.vz - params.waveSpeed);
+    }
+  }
+
   return { gradX, gradZ, touchTurning };
 }
 
@@ -174,6 +290,36 @@ export function updateRigTransform(
   gradZ: number,
   params: PhysicsParams,
 ): void {
+  if (s.airborne) {
+    rig.position.set(s.x, s.airY + BOARD_LIFT, s.z);
+
+    // Heading-aligned forward, world-up for up; small pitch from airVY so the
+    // nose lifts going up and drops on descent.
+    const fwdX =  Math.sin(s.angle);
+    const fwdZ = -Math.cos(s.angle);
+    const pitch = Math.max(-0.45, Math.min(0.45, s.airVY / AIR_LAUNCH_VY_MAX * 0.45));
+    const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
+    // tangent (board +X, the nose) tilted up by `pitch` around the lateral axis.
+    const tX = fwdX * cosP;
+    const tY = sinP;
+    const tZ = fwdZ * cosP;
+    // up (board +Y) tilted back by the same amount so the basis stays orthonormal.
+    const uX = -fwdX * sinP;
+    const uY =  cosP;
+    const uZ = -fwdZ * sinP;
+    const rX = tY * uZ - tZ * uY;
+    const rY = tZ * uX - tX * uZ;
+    const rZ = tX * uY - tY * uX;
+    _rigMat.set(
+      tX, uX, rX, 0,
+      tY, uY, rY, 0,
+      tZ, uZ, rZ, 0,
+      0,  0,  0,  1,
+    );
+    rig.quaternion.setFromRotationMatrix(_rigMat);
+    return;
+  }
+
   const nrmLen = Math.sqrt(gradX * gradX + 1 + gradZ * gradZ);
   const nX = -gradX / nrmLen, nY = 1 / nrmLen, nZ = -gradZ / nrmLen;
   const waveH = waveHeightAt(s.z, s.waveZ, s.x, s.breakX, params.peakAmp, params.sigmaFront, params.sigmaBack);
@@ -242,6 +388,11 @@ export function updateCharacterPose(
   phase: GamePhase,
 ): void {
   if (phase === 'wiped_out' || phase === 'missed_wave') return;
+
+  if (s.airborne) {
+    character.blendTo('standing_neutral', 5, dt);
+    return;
+  }
 
   if (s.stance === 'prone') {
     character.blendTo(input.up ? 'prone_paddle_l' : 'prone_neutral', 2, dt);

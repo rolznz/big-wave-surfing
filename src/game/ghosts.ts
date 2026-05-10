@@ -191,6 +191,10 @@ function makeInitialState(hasPortals: boolean): SurferState {
     waveZ: WAVE_START_Z,
     breakX: BREAK_START_X,
     rideTime: 0,
+    airborne: false,
+    airY: 0,
+    airVY: 0,
+    speedHistory: [],
   };
 }
 
