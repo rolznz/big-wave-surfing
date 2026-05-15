@@ -31,21 +31,14 @@ export const MISSED_BY      = 10;
 // ─── Ocean mesh ──────────────────────────────────────────────────────────────
 // Wave strip mesh — dense, sized to just cover the wave's active footprint.
 // X-width must exceed the wave's X footprint (see note); Z-depth must contain
-// the wave band (rel ∈ [-100, 60] in waveHeightAt). EDGE_TAPER lets the strip
-// smoothly meet the flat base plane at its X borders.
+// the wave band (rel ∈ [-100, 60] in waveHeightAt). EDGE_TAPER smoothly drops
+// the wave height to 0 at the strip's X borders.
 export const WAVE_STRIP_W          = 1800;
 export const WAVE_STRIP_D          = 300;
 export const WAVE_STRIP_SEG_X      = 400;
 export const WAVE_STRIP_SEG_Z      = 120;
 export const WAVE_STRIP_OFFSET_Z   = -50;
 export const WAVE_STRIP_EDGE_TAPER = 20;
-
-// Flat base plane — huge 4-vertex quad that fills the horizon. Sits slightly
-// above y=0 so it covers the wave strip's flat-water regions; wave ridges
-// rising above FLAT_OCEAN_Y occlude it naturally.
-export const FLAT_OCEAN_W = 6000;
-export const FLAT_OCEAN_D = 6000;
-export const FLAT_OCEAN_Y = 0.05;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
 export const SURFER_START_X = -200;

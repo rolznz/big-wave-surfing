@@ -706,7 +706,7 @@ export function createLoop(
 
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
       updateCharacterPose(character, state, physInputForPose, dt, phase);
-      wave.update(dt, state.breakX, state.z, state.x);
+      wave.update(dt, state.breakX, state.z);
       emitTrailSlice(now);
     } else {
       // Wave keeps rolling so the ragdoll has live whitewater to tumble in.
@@ -714,7 +714,7 @@ export function createLoop(
       // height field passed to ragdoll.step() stays consistent.
       state.waveZ += physicsParams.waveSpeed * dt;
       ragdoll.step(dt, state, physicsParams);
-      wave.update(dt, state.breakX, state.z, state.x);
+      wave.update(dt, state.breakX, state.z);
     }
 
     const sampleHeight = (x: number, z: number) =>
