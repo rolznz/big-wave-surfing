@@ -216,7 +216,6 @@ export default function HUD({
     starsCollected, starsTotal, starsRequired, starsMissed,
   } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
-  const needMoreStars = starsTotal > 0 && starsCollected < starsRequired;
 
   if (phase === 'surfing') {
     return (
@@ -249,23 +248,6 @@ export default function HUD({
             </>
           )}
         </div>
-        {needMoreStars && progress >= 0.98 && (
-          <div
-            style={{
-              position: 'fixed',
-              top: '7rem',
-              left: 0,
-              right: 0,
-              textAlign: 'center',
-              fontSize: 'clamp(0.9rem, 2vw, 1.1rem)',
-              color: '#ffdf6a',
-              textShadow: '0 1px 6px rgba(0,0,0,0.8)',
-              pointerEvents: 'none',
-            }}
-          >
-            Need {starsRequired - starsCollected} more ★ to complete the wave
-          </div>
-        )}
         <div style={topRightStack}>
           {showAdvancedOptions && (
             <button type="button" style={topRightButton} onClick={onToggleWireframe}>
@@ -305,6 +287,9 @@ export default function HUD({
   } else if (phase === 'missed_wave') {
     title = 'MISSED THE WAVE';
     accent = { color: '#fff2b3' };
+  } else if (phase === 'no_stars') {
+    title = 'NOT ENOUGH STARS';
+    accent = { color: '#ffdf6a' };
   } else if (phase === 'completed') {
     title = 'WAVE COMPLETED';
     accent = { color: '#bfffce' };

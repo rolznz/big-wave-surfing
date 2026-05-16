@@ -30,7 +30,7 @@ import { Ragdoll } from './ragdoll';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type GamePhase  = 'surfing' | 'wiped_out' | 'missed_wave' | 'completed';
+export type GamePhase  = 'surfing' | 'wiped_out' | 'missed_wave' | 'no_stars' | 'completed';
 export type Stance     = 'prone' | 'standing';
 export type CameraMode = 'fixed' | 'chase';
 
@@ -482,9 +482,11 @@ export function createLoop(
       if (sign !== 0) lastTouchTurnSign = sign;
     }
 
-    // 8. Completion — reached the right-hand goal AND collected enough stars.
-    if (state.x >= goalX && starSys.collectedCount >= starsRequired) {
-      phase = 'completed';
+    // 8. Reached the right-hand goal — completed if star quota met, otherwise
+    //    it's a fail (the player rode the whole wave but didn't pick up enough
+    //    stars to clear the level).
+    if (state.x >= goalX) {
+      phase = starSys.collectedCount >= starsRequired ? 'completed' : 'no_stars';
       state.vx = 0;
       state.vz = 0;
       return { gradX, gradZ };

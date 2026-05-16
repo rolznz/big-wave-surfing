@@ -80,10 +80,9 @@ export const LEVELS: LevelConfig[] = [
     seed: 9001,
     difficulty: 4,
     waveAmpMultiplier: 1.5,
-    waveThicknessMultiplier: 1.5,
-    gameDurationMultiplier: 0.5,
-    waveSpeedMultiplier: 1.4,
-    breakSpeedMultiplier: 2.6,
+    waveSpeedMultiplier: 2.4,
+    breakSpeedMultiplier: 4,
+    waveThicknessMultiplier: 1.4,
     obstacles: [{ kind: 'rock', count: 20 }],
     numStars: 10,
     minStars: 6,
@@ -103,21 +102,21 @@ export const LEVELS: LevelConfig[] = [
     numStars: 15,
     minStars: 10,
   },
-  {
+  /*{
     id: 'the_hill',
     name: '6 · The Hill',
     description: 'Something out of a horror movie.',
     seed: 2718,
     difficulty: 5,
-    waveAmpMultiplier: 2.5,
-    waveSpeedMultiplier: 1.4,
-    waveThicknessMultiplier: 1.5,
-    breakSpeedMultiplier: 2.6,
+    waveAmpMultiplier: 1.5,
+    waveSpeedMultiplier: 2.4,
+    breakSpeedMultiplier: 4,
+    waveThicknessMultiplier: 2.5,
     gameDurationMultiplier: 0.7,
     obstacles: [{ kind: 'rock', count: 50 }],
     numStars: 7,
     minStars: 7,
-  },
+  },*/
 ];
 
 export function levelWaveAmp(level: LevelConfig, baseAmp: number): number {
