@@ -3,7 +3,7 @@ export const WAVE_AMP           = 50;    // crest height in world units // TODO:
 export const WAVE_SIGMA_FRONT   = 10;    // steepness of front face (smaller = steeper)
 export const WAVE_SIGMA_BACK    = 20.0;  // depth of back slope at the break point
 export const WAVE_X_DECAY       = 200;   // e-fold distance for amplitude on the clean shoulder (right of break)
-export const WAVE_X_BROKEN_DECAY = 80;   // e-fold distance for amplitude on the broken side (left of break) — shorter so whitewater dies down
+export const WAVE_X_BROKEN_DECAY = 150;   // e-fold distance for amplitude on the broken side (left of break) — shorter so whitewater dies down
 export const WAVE_X_SIGMA_SCALE = 60;    // every 60 X-units from break, sigmaBack grows by 1
 export const WAVE_PEAK_AHEAD_X  = 3;     // peak sits this far into the clean side of breakX, so the crest curls ahead of the whitewater
 export const WAVE_SPEED         = 10;    // units/sec toward +Z
@@ -34,16 +34,16 @@ export const MISSED_BY      = 10;
 // the wave band (rel ∈ [-100, 60] in waveHeightAt). EDGE_TAPER smoothly drops
 // the wave height to 0 at the strip's X borders.
 export const WAVE_STRIP_W          = 1800;
-export const WAVE_STRIP_D          = 300;
-export const WAVE_STRIP_SEG_X      = 400;
-export const WAVE_STRIP_SEG_Z      = 120;
-export const WAVE_STRIP_OFFSET_Z   = -50;
+export const WAVE_STRIP_D          = 600;
+export const WAVE_STRIP_SEG_X      = 200;
+export const WAVE_STRIP_SEG_Z      = 200;
+export const WAVE_STRIP_OFFSET_Z   = -200;
 export const WAVE_STRIP_EDGE_TAPER = 20;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
 export const SURFER_START_X = -200;
 export const SURFER_START_Z = -60;
-export const SURFER_X_LIMIT = 240;
+export const SURFER_X_LIMIT = 1000;
 
 // ─── Stance physics profiles ─────────────────────────────────────────────────
 // Prone (lying on board, paddling): slow to turn, can paddle, body creates drag,
@@ -85,10 +85,10 @@ export const AIR_LAUNCH_MAX_ANGLE_DEG = 80;
 // How far in front of the crest (units, +Z from waveZ) the launch line sits.
 // 0 = trigger at the crest itself (surfer pops over the back). Bigger = pop
 // earlier on the upper face, before they're actually over the lip.
-export const AIR_LAUNCH_FRONT_OFFSET  = 4;
+export const AIR_LAUNCH_FRONT_OFFSET  = 8;
 export const AIR_LAUNCH_VY_FACTOR = 0.6;   // airVY = factor × speed at launch
-export const AIR_LAUNCH_PEAK_WINDOW = 2;   // seconds: jump height uses max speed seen in this trailing window, so decelerating up the face still gives a tall pop
-export const AIR_LAUNCH_VY_MAX    = 30;    // cap on launch upward velocity
+export const AIR_LAUNCH_PEAK_WINDOW = 4;   // seconds: jump height uses max speed seen in this trailing window, so decelerating up the face still gives a tall pop
+export const AIR_LAUNCH_VY_MAX    = 300;    // cap on launch upward velocity
 export const AIR_GRAVITY          = 30;    // units/sec² downward while airborne
 export const AIR_TURN_SPEED       = 7.5;   // rad/sec while airborne
 export const AIR_REDIRECT_RATE    = 5;     // per-second blend of velocity toward heading
@@ -131,7 +131,7 @@ export const CAMERA_LENS = {
 // surfer and the crest would otherwise sit between camera and subject.
 export const CAMERA_FIXED = {
   HEIGHT:        10,  // world-Y above surfer
-  DISTANCE:      35,  // behind surfer on +Z
+  DISTANCE:      50,  // behind surfer on +Z
   LOOK_AHEAD:    15,  // look this far toward -Z of surfer
   LOOK_UP:       1,   // look target world-Y above surfer
   MIN_CLEARANCE: 4,
@@ -173,4 +173,11 @@ export const FOAM_HEIGHT_FRAC = 0.35;
 // Surface-foam texture scrolls at this fraction of the wave's apparent speed.
 // <1 makes the wave visibly overtake the foam — conveys forward roll.
 export const FOAM_PARALLAX = 0.1;
+
+// ─── Pumping (arcade input-driven) ───────────────────────────────────────────
+// A pump fires when the steering input flips direction (left↔right) and the
+// previous direction was held for at least PUMP_MIN_HOLD_S. Each pump adds
+// PUMP_IMPULSE to the surfer's velocity along their facing direction.
+export const PUMP_IMPULSE     = 5;     // forward Δv on each rail-flip pump
+export const PUMP_MIN_HOLD_S  = 0.2;   // previous direction must have been held this long
 

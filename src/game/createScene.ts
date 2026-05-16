@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { CAMERA_LENS } from './constants';
+import { createSky, Sky } from './sky';
 
 export interface BaseScene {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  sky: Sky;
   dispose: () => void;
 }
 
@@ -18,8 +20,9 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   renderer.toneMappingExposure = 0.95;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.007);
+  scene.fog = new THREE.FogExp2(0xdbeef7, 0.002);
+  const sky = createSky();
+  scene.add(sky.mesh);
 
   const camera = new THREE.PerspectiveCamera(
     CAMERA_LENS.FOV,
@@ -29,7 +32,7 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   );
 
   // Sun — softer directional so the wave color can breathe.
-  const sun = new THREE.DirectionalLight(0xfff5cc, 1.8);
+  const sun = new THREE.DirectionalLight(0xfff5cc, 2);
   sun.position.set(15, 40, 20);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
@@ -37,13 +40,14 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
 
   // Fill / sky light
   scene.add(new THREE.AmbientLight(0x88bbff, 2.0));
-  const fillLight = new THREE.DirectionalLight(0xaaddff, 0.1);
+  const fillLight = new THREE.DirectionalLight(0xaaddff, 2);
   fillLight.position.set(-20, 10, -10);
   scene.add(fillLight);
 
   function dispose() {
+    sky.dispose();
     renderer.dispose();
   }
 
-  return { renderer, scene, camera, dispose };
+  return { renderer, scene, camera, sky, dispose };
 }

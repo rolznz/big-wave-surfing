@@ -178,12 +178,12 @@ interface GhostInstance {
   ghostTime: number;
 }
 
-function makeInitialState(hasPortals: boolean): SurferState {
+function makeInitialState(): SurferState {
   return {
     x: SURFER_START_X,
-    z: hasPortals ? SURFER_START_Z - 40 : SURFER_START_Z,
+    z: SURFER_START_Z,
     vx: 0,
-    vz: hasPortals ? 15 : 0,
+    vz: 0,
     angle: Math.PI,
     stance: 'prone',
     paddleCycleT: 0,
@@ -195,13 +195,16 @@ function makeInitialState(hasPortals: boolean): SurferState {
     airY: 0,
     airVY: 0,
     speedHistory: [],
+    steerDir: 0,
+    steerHoldT: 0,
+    prevSteerDir: 0,
+    prevSteerHoldT: 0,
   };
 }
 
 function createGhostInstance(
   scene: THREE.Scene,
   rec: GhostRecording,
-  hasPortals: boolean,
 ): GhostInstance {
   const rig = new THREE.Group();
   rig.renderOrder = 1;
@@ -218,10 +221,7 @@ function createGhostInstance(
 
   const ragdoll = new Ragdoll(scene, character, board);
 
-  const state = makeInitialState(hasPortals);
-  // Match live trail's initial-slice behavior: anchor lastSlice at the
-  // un-offset spawn so the first slice (potentially ahead of the surfer
-  // when portals are active) lands in the same place.
+  const state = makeInitialState();
   const trail = createGhostTrail(scene, SURFER_START_X, SURFER_START_Z);
 
   return {
@@ -316,11 +316,10 @@ export function createGhostManager(
   scene: THREE.Scene,
   level: LevelConfig,
   params: PhysicsParams,
-  hasPortals: boolean,
 ): GhostManager {
   const ghosts: GhostInstance[] = ghostStore
     .getForLevel(level.id)
-    .map((rec) => createGhostInstance(scene, rec, hasPortals));
+    .map((rec) => createGhostInstance(scene, rec));
 
   return {
     step(liveDt: number) {

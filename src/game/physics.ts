@@ -8,6 +8,7 @@ import {
   AIR_LAUNCH_MIN_SPEED, AIR_LAUNCH_MAX_ANGLE_DEG, AIR_LAUNCH_FRONT_OFFSET,
   AIR_LAUNCH_VY_FACTOR, AIR_LAUNCH_VY_MAX, AIR_LAUNCH_PEAK_WINDOW,
   AIR_GRAVITY, AIR_TURN_SPEED, AIR_REDIRECT_RATE, AIR_DRAG,
+  PUMP_IMPULSE, PUMP_MIN_HOLD_S,
 } from './constants';
 import type { GamePhase, Stance } from './loop';
 
@@ -30,6 +31,14 @@ export interface SurferState {
    * recent peak speed rather than their current (potentially decelerated) speed.
    */
   speedHistory: { t: number; s: number }[];
+  /** Current frame's steering direction: -1 left, +1 right, 0 none. */
+  steerDir: number;
+  /** Seconds the current steerDir has been held. */
+  steerHoldT: number;
+  /** Previously-committed non-zero steering direction (carries across brief release gaps). */
+  prevSteerDir: number;
+  /** How long prevSteerDir was held when committed. */
+  prevSteerHoldT: number;
 }
 
 export interface PhysicsInput {
@@ -130,6 +139,10 @@ export function stepSurfer(
       s.vz += params.waveSpeed;
       s.airborne = false;
       s.speedHistory.length = 0;
+      s.steerDir = 0;
+      s.steerHoldT = 0;
+      s.prevSteerDir = 0;
+      s.prevSteerHoldT = 0;
     }
 
     return { gradX: 0, gradZ: 0, touchTurning: false };
@@ -153,6 +166,36 @@ export function stepSurfer(
 
   const fwdX =  Math.sin(s.angle);
   const fwdZ = -Math.cos(s.angle);
+
+  // 1b. Pump — a fast L↔R input flip after holding the previous direction
+  // ≥ PUMP_MIN_HOLD_S fires a fixed forward impulse along the board's facing.
+  // prevSteerDir carries the previous direction's hold-credit across brief
+  // release gaps; the credit is consumed on use so each held press grants at
+  // most one pump.
+  const newDir = input.left && !input.right ? -1
+               : input.right && !input.left ?  1
+               : 0;
+  if (newDir === s.steerDir) {
+    s.steerHoldT += dt;
+  } else {
+    if (s.steerDir !== 0) {
+      s.prevSteerDir   = s.steerDir;
+      s.prevSteerHoldT = s.steerHoldT;
+    }
+    if (
+      newDir !== 0 &&
+      s.prevSteerDir !== 0 &&
+      newDir !== s.prevSteerDir &&
+      s.prevSteerHoldT >= PUMP_MIN_HOLD_S
+    ) {
+      s.vx += fwdX * PUMP_IMPULSE;
+      s.vz += fwdZ * PUMP_IMPULSE;
+      s.prevSteerDir   = 0;
+      s.prevSteerHoldT = 0;
+    }
+    s.steerDir   = newDir;
+    s.steerHoldT = 0;
+  }
 
   // 2. Paddle thrust
   if (input.up && P.PADDLE_THRUST > 0) {

@@ -35,14 +35,15 @@ export function waveHeightAt(
   peakAmp: number = WAVE_AMP,
   sigmaFrontBase: number = WAVE_SIGMA_FRONT,
   sigmaBackBase: number = WAVE_SIGMA_BACK,
+  decayMultiplier: number = 1
 ): number {
   const rel = worldZ - waveZ;
   const peakX = breakX + WAVE_PEAK_AHEAD_X;
   const xDistClean  = Math.max(0, worldX - peakX);
   const xDistBroken = Math.max(0, peakX - worldX);
   const amp = peakAmp
-    * Math.exp(-xDistClean  / WAVE_X_DECAY)
-    * Math.exp(-xDistBroken / WAVE_X_BROKEN_DECAY);
+    * Math.exp(-xDistClean  / WAVE_X_DECAY * decayMultiplier)
+    * Math.exp(-xDistBroken / WAVE_X_BROKEN_DECAY * decayMultiplier);
   const sigmaBack = sigmaBackBase + xDistClean / WAVE_X_SIGMA_SCALE;
   const sigma = rel >= 0 ? sigmaFrontBase : sigmaBack;
   return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
@@ -79,9 +80,46 @@ function noise3(x: number, y: number, z: number): number {
   return y0 + (y1 - y0) * sz;
 }
 
+// ─── Background swell crests ─────────────────────────────────────────────────
+// Parallel crests at fixed Z offsets from the main wave. They share the
+// main wave's full profile — same Z gaussian (sigmaFront / sigmaBack) and
+// same asymmetric X shape (peak just ahead of breakX, fast decay on the
+// broken side, slow decay on the clean shoulder) — so they look like the
+// same swell train, just unbroken (no foam / whitewater) and offset down
+// the swell. They travel with waveZ automatically because their position
+// is computed relative to it each frame.
+const BG_WAVE_Z_OFFSETS = [-150, -350, -550];
+const BG_WAVE_X_OFFSETS = [-200, 300, -200];
+const BG_WAVE_AMP_SCALE = [0.35*2, 0.25*2, 0.35*2];
+// Further-back swells haven't reached the same point of the break yet, so
+// their peak sits further to the left (smaller breakX). Per-swell -X offset.
+
+function backgroundWaveHeight(
+  wz: number,
+  waveZ: number,
+  wx: number,
+  breakX: number,
+  peakAmp: number,
+  sigmaFrontBase: number,
+  sigmaBackBase: number,
+): number {
+  let h = 0;
+  for (let i = 0; i < BG_WAVE_Z_OFFSETS.length; i++) {
+    const bgWaveZ = waveZ + BG_WAVE_Z_OFFSETS[i];
+    const bgBreakX = breakX + BG_WAVE_X_OFFSETS[i];
+    h += waveHeightAt(
+      wz, bgWaveZ, wx, bgBreakX,
+      peakAmp * BG_WAVE_AMP_SCALE[i],
+      sigmaFrontBase, sigmaBackBase,
+      0.15
+    );
+  }
+  return h;
+}
+
 // ─── Vertex colour helpers ────────────────────────────────────────────────────
 
-const COL_DEEP        = new THREE.Color(0x00304a);
+const COL_DEEP        = new THREE.Color(0x2f6fb8);
 const COL_FACE        = new THREE.Color(0x0077aa);
 const COL_CREST       = new THREE.Color(0x00ccff);
 const COL_FOAM        = new THREE.Color(0xddf5ff);
@@ -263,22 +301,28 @@ export class WaveOcean {
       const wz = posAttr.getZ(i) + meshPosZ;
       const rel = wz - waveZ;
 
+      // X-edge taper: smoothly drop wave height to 0 at the strip's left/right
+      // borders so the wave height falls to 0 without a cliff. Shared by the
+      // main wave and the background swell crests.
+      const edgeDist = halfStripW - Math.abs(wx);
+      const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
+
       if (rel < REL_BACK || rel > REL_FRONT) {
-        // Flat water — cheap write path.
-        posAttr.setY(i, 0);
+        // Outside the active main-wave band: only the unbroken background
+        // crests contribute height. No foam / whitewater here.
+        const bgY = backgroundWaveHeight(
+          wz, waveZ, wx, breakX,
+          this.peakAmp, this.sigmaFront, (this.sigmaFront * 0.7 + this.sigmaBack * 0.3),
+        ) * edgeFactor;
+        posAttr.setY(i, bgY);
         colAttr.setXYZ(i, COL_DEEP.r, COL_DEEP.g, COL_DEEP.b);
         foamBuf[i] = 0;
-        wwPos.setY(i, TRAIL_LIFT);
+        wwPos.setY(i, bgY + TRAIL_LIFT);
         wwMask.setX(i, 0);
-        sfPos.setY(i, TRAIL_LIFT);
+        sfPos.setY(i, bgY + TRAIL_LIFT);
         sfCol.setXYZ(i, 0, 0, 0);
         continue;
       }
-
-      // X-edge taper: smoothly drop wave height to 0 at the strip's left/right
-      // borders so the wave height falls to 0 without a cliff.
-      const edgeDist = halfStripW - Math.abs(wx);
-      const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
       const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp, this.sigmaFront, this.sigmaBack) * edgeFactor;
       posAttr.setY(i, h);
 
@@ -300,12 +344,16 @@ export class WaveOcean {
       const whitewater = Math.max(crestFoam, lipMask * 1.4, trailMask * 0.85);
       foamBuf[i] = crestFoam;   // only the crest foam drives normal perturbation
 
-      // ── Surface foam mask: subtle detail wherever there's a wave face ──
+      // ── Surface foam mask: subtle detail near the wave crest only ──
       // Ramps up quickly so anything above a shallow threshold gets full
       // detail; tapered down where the whitewater overlay is strong so we
-      // don't double up two white layers on the broken section.
+      // don't double up two white layers on the broken section. A gaussian
+      // Z falloff (centred on the crest) kills the foam on the gentle outer
+      // slopes so the back / front shoulders read as clean water.
       const surfaceRamp = Math.min(1, h / (this.peakAmp * 0.15));
-      const surfaceMask = surfaceRamp * Math.max(0, 1 - whitewater);
+      const SURFACE_FOAM_Z_SIGMA = 12;
+      const zFade = Math.exp(-(rel * rel) / (2 * SURFACE_FOAM_Z_SIGMA * SURFACE_FOAM_Z_SIGMA));
+      const surfaceMask = surfaceRamp * zFade * Math.max(0, 1 - whitewater);
 
       vertexColor(h, crestFoam, _tmp);
 
@@ -319,9 +367,19 @@ export class WaveOcean {
       }
 
       // Back-of-wave darken: dim the gentle back slope so the crest reads as
-      // a divider between lit front and shaded back.
+      // a divider between lit front and shaded back. Ramps up over the first
+      // sigma behind the crest, then smoothly ramps back down to 0 by the
+      // edge of the active band — otherwise you get a hard step where the
+      // darkened back-slope meets undarkened flat water.
       if (rel < 0) {
-        const backT = Math.min(1, -rel / WAVE_SIGMA_BACK);
+        const backRel = -rel;
+        // smoothstep ramp-up: 0 at crest, ~1 by one sigma back.
+        const u = Math.max(0, Math.min(1, backRel / WAVE_SIGMA_BACK));
+        const rampUp = u * u * (3 - 2 * u);
+        // smoothstep ramp-down: ~1 at one sigma, 0 by REL_BACK.
+        const d = Math.max(0, Math.min(1, (-REL_BACK - backRel) / (-REL_BACK - WAVE_SIGMA_BACK)));
+        const rampDown = d * d * (3 - 2 * d);
+        const backT = rampUp * rampDown;
         const dim = 1 - backT * BACK_DARKEN_STRENGTH;
         _tmp.r *= dim; _tmp.g *= dim; _tmp.b *= dim;
       }

@@ -20,7 +20,6 @@ import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, leve
 import { mulberry32 } from './rng';
 import { createObstacles, type ObstacleSystem } from './obstacles';
 import { createStars, type StarSystem } from './stars';
-import { createPortals } from './portals';
 import {
   SurferState, PhysicsInput, PhysicsParams,
   stepSurfer, updateRigTransform, updateCharacterPose,
@@ -105,7 +104,7 @@ export function createLoop(
   level: LevelConfig,
   opts: LoopOptions,
 ): LoopHandle {
-  const { renderer, scene, camera } = bs;
+  const { renderer, scene, camera, sky } = bs;
 
   // ── Level-derived params ─────────────────────────────────────────────────
   const rng = mulberry32(level.seed);
@@ -149,27 +148,15 @@ export function createLoop(
 
   const ragdoll = new Ragdoll(scene, character, board);
 
-  const portals = createPortals(scene, rig, {
-    spawnX: SURFER_START_X,
-    spawnY: 20,
-    // Start portal rides the wave frame so it stays reachable as the wave scrolls.
-    spawnZOffset: SURFER_START_Z - WAVE_START_Z - 40,
-    exitX: goalX - 30,
-    exitY: 0,
-    exitZOffset: 30,
-  });
-
   // ── State ─────────────────────────────────────────────────────────────────
   let phase: GamePhase = 'surfing';
   let cameraMode: CameraMode = 'fixed';
 
   const state: SurferState = {
     x: SURFER_START_X,
-    z: portals.hasPortals ? SURFER_START_Z - 40 : SURFER_START_Z,
+    z: SURFER_START_Z,
     vx: 0,
-    // When arriving via a portal, pop out with forward (+Z) momentum so there's
-    // no motionless-on-load moment.
-    vz: portals.hasPortals ? 15 : 0,
+    vz: 0,
     angle: Math.PI,
     stance: 'prone',
     paddleCycleT: 0,
@@ -181,6 +168,10 @@ export function createLoop(
     airY: 0,
     airVY: 0,
     speedHistory: [],
+    steerDir: 0,
+    steerHoldT: 0,
+    prevSteerDir: 0,
+    prevSteerHoldT: 0,
   };
 
   // Stats (reset per run).
@@ -199,7 +190,7 @@ export function createLoop(
   const recording: GhostFrame[] = [];
 
   // ── Ghost manager (replays prior-run recordings for this level) ──────────
-  const ghostManager = createGhostManager(scene, level, physicsParams, portals.hasPortals);
+  const ghostManager = createGhostManager(scene, level, physicsParams);
 
   // Camera smooth targets — rebuilt each frame in updateCamera().
   // Intro: scale offsets down at level start and ease back to 1.0 over
@@ -721,7 +712,6 @@ export function createLoop(
       waveHeightAt(z, wave.waveZ, x, state.breakX, peakAmp, sigmaFront, sigmaBack);
     obstacleSys.update(wave.waveZ, sampleHeight);
     starSys.update(wave.waveZ, sampleHeight, dt);
-    portals.update(dt, wave.waveZ, state.breakX);
 
     // Ghosts step regardless of live phase — they keep replaying after the
     // live player wipes out so the surrounding scene stays populated.
@@ -729,6 +719,7 @@ export function createLoop(
 
     rebuildTrail(now);
     updateCamera(dt);
+    sky.update(rig.position, dt);
 
     const progress = Math.max(
       0,
@@ -771,7 +762,6 @@ export function createLoop(
     trailMat.dispose();
     obstacleSys.dispose();
     starSys.dispose();
-    portals.dispose();
     ghostManager.dispose();
   }
 
