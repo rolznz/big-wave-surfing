@@ -320,7 +320,7 @@ float sparkleNoise2(vec2 p) {
   vec2 q3 = wrapXZ * 3.1  + vec2( 0.9, -0.5) * t * 1.3;
   float n = sparkleNoise2(q1) * sparkleNoise2(q2) * sparkleNoise2(q3);
   float sparkle = pow(max(0.0, n - 0.06), 2.2) * 60.0;
-  gl_FragColor.rgb += sunTint * sparkle * sunAlignSparkle * (0.4 + 0.6 * fresnel) * uSparkleStrength * 1.4;
+  gl_FragColor.rgb += sunTint * sparkle * sunAlignSparkle * (0.4 + 0.6 * fresnel) * uSparkleStrength * 0.2;
 }
 #include <fog_fragment>`,
         );

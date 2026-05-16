@@ -47,7 +47,7 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   // Ambient — strong cool sky bounce so shaded back-of-wave doesn't go
   // dim. This is what keeps the scene feeling open and bright without
   // needing a warm sun.
-  scene.add(new THREE.AmbientLight(0xbbd4ff, 0.8));
+  scene.add(new THREE.AmbientLight(0xbbd4ff, 1.2));
   // Fill — cool blue bounce from the open ocean / sky on the opposite side.
   const fillLight = new THREE.DirectionalLight(0xaaddff, 0.8);
   fillLight.position.set(-20, 10, -10);
