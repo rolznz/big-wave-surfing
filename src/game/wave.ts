@@ -90,7 +90,7 @@ function noise3(x: number, y: number, z: number): number {
 // is computed relative to it each frame.
 const BG_WAVE_Z_OFFSETS = [-150, -350, -550];
 const BG_WAVE_X_OFFSETS = [-200, 300, -200];
-const BG_WAVE_AMP_SCALE = [0.35*2, 0.25*2, 0.35*2];
+const BG_WAVE_AMP_SCALE = [0.35, 0.25, 0.35];
 // Further-back swells haven't reached the same point of the break yet, so
 // their peak sits further to the left (smaller breakX). Per-swell -X offset.
 
@@ -111,7 +111,7 @@ function backgroundWaveHeight(
       wz, bgWaveZ, wx, bgBreakX,
       peakAmp * BG_WAVE_AMP_SCALE[i],
       sigmaFrontBase, sigmaBackBase,
-      0.15
+      0.35
     );
   }
   return h;
@@ -188,6 +188,27 @@ export class WaveOcean {
   private readonly sfMat: THREE.MeshBasicMaterial;
   private readonly sfTex: THREE.Texture;
 
+  // Sparkle uniforms injected into MeshPhongMaterial via onBeforeCompile.
+  // Same object is wired into the compiled shader, so updating .value here
+  // updates the GPU-side uniform.
+  private readonly sparkleUniforms = {
+    uSparkleTime: { value: 0 },
+    // Must match the directional light in createScene.ts — this is the
+    // direction TO the sun, used to compute reflection toward the camera.
+    // Negative Z so the sun sits in front of the (chase) camera, which
+    // looks in -Z. Otherwise the reflected glint shoots away from us.
+    uSunDir: { value: new THREE.Vector3(15, 22, -30).normalize() },
+    // Overall multiplier for the sun-glint pass. Typically wired to the
+    // directional light's intensity so dialing the sun down dims the
+    // glint proportionally. 0 = no glint; 1 = baseline.
+    uSparkleStrength: { value: 1.0 },
+  };
+
+  /** Set the overall sun-glint multiplier (broad reflection + sparkles). */
+  setSparkleStrength(s: number): void {
+    this.sparkleUniforms.uSparkleStrength.value = s;
+  }
+
   private elapsed = 0;
 
   constructor(scene: THREE.Scene, params: WaveOceanParams) {
@@ -212,12 +233,98 @@ export class WaveOcean {
 
     const mat = new THREE.MeshPhongMaterial({
       vertexColors: true,
-      specular: new THREE.Color(0x99eeff),
-      shininess: 120,
+      // Phong specular is intentionally subdued — the broad cyan highlight
+      // it produces reads as a fake sun blob. Highlights now come almost
+      // entirely from the injected sparkle pass below.
+      specular: new THREE.Color(0x334455),
+      shininess: 300,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
+    // Sun-glint sparkle: injected into the standard phong shader so we keep
+    // lighting/shadows but add a high-frequency twinkling glint, concentrated
+    // around the sun's reflected direction and strengthened at grazing angles
+    // by a Fresnel term. Read-only changes to gl_FragColor before fog so
+    // sparkles fade with distance.
+    const sparkleUniforms = this.sparkleUniforms;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uSparkleTime     = sparkleUniforms.uSparkleTime;
+      shader.uniforms.uSunDir          = sparkleUniforms.uSunDir;
+      shader.uniforms.uSparkleStrength = sparkleUniforms.uSparkleStrength;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>\nvarying vec3 vSparkleWorldPos;`,
+        )
+        .replace(
+          '#include <worldpos_vertex>',
+          `#include <worldpos_vertex>\nvSparkleWorldPos = worldPosition.xyz;`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vSparkleWorldPos;
+uniform float uSparkleTime;
+uniform vec3 uSunDir;
+uniform float uSparkleStrength;
+float sparkleHash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+// Smooth interpolated value noise — continuous, no visible cell grid.
+// The grid is implicit inside the function but the bilinear smoothstep
+// interpolation between corner hashes hides it completely.
+float sparkleNoise2(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = sparkleHash21(i);
+  float b = sparkleHash21(i + vec2(1.0, 0.0));
+  float c = sparkleHash21(i + vec2(0.0, 1.0));
+  float d = sparkleHash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}`,
+        )
+        .replace(
+          '#include <fog_fragment>',
+          `{
+  vec3 N = normalize(normal);
+  vec3 V = normalize(cameraPosition - vSparkleWorldPos);
+  vec3 R = reflect(-uSunDir, N);
+  float vdotr   = max(0.0, dot(V, R));
+  float fresnel = pow(1.0 - max(0.0, dot(V, N)), 2.0);
+  vec3 sunTint  = vec3(1.0, 0.95, 0.85);
+
+  // World coords wrapped at a long distance to keep hash precision good
+  // while the surfer travels — the wrap is rarely crossed in a single
+  // viewport and the underlying noise is interpolated so any boundary
+  // discontinuity is a soft gradient line, not a grid of squares.
+  vec2 wrapXZ = vSparkleWorldPos.xz - 1024.0 * floor(vSparkleWorldPos.xz / 1024.0);
+
+  // (a) Broad sun-reflection band.
+  float sunPath = pow(vdotr, 1.8);
+  gl_FragColor.rgb += sunTint * sunPath * (0.35 + 0.65 * fresnel) * uSparkleStrength * 0.9;
+
+  // (b) Sparkles — built from THREE multiplied octaves of continuous
+  // interpolated noise. No floor()-cell hashing, no per-cell dots.
+  // Multiplying noises means only the rare spots where all three peak
+  // produce a bright sparkle; a sharp pow() lifts the highlights into
+  // tight bright points without any grid structure.
+  float sunAlignSparkle = pow(vdotr, 5.0);
+  float t = uSparkleTime;
+  vec2 q1 = wrapXZ * 0.8  + vec2( 0.6,  0.2) * t;
+  vec2 q2 = wrapXZ * 1.7  + vec2(-0.4,  0.9) * t * 0.7;
+  vec2 q3 = wrapXZ * 3.1  + vec2( 0.9, -0.5) * t * 1.3;
+  float n = sparkleNoise2(q1) * sparkleNoise2(q2) * sparkleNoise2(q3);
+  float sparkle = pow(max(0.0, n - 0.06), 2.2) * 60.0;
+  gl_FragColor.rgb += sunTint * sparkle * sunAlignSparkle * (0.4 + 0.6 * fresnel) * uSparkleStrength * 1.4;
+}
+#include <fog_fragment>`,
+        );
+    };
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.position.z = params.startZ + WAVE_STRIP_OFFSET_Z;
     this.mesh.receiveShadow = true;
@@ -260,7 +367,7 @@ export class WaveOcean {
    * The mesh follows the surfer so the ocean never runs out, while the wave
    * crest travels through it.
    */
-  update(dt: number, breakX: number, surferZ: number): void {
+  update(dt: number, breakX: number, surferZ: number, surferX = 0): void {
     this.elapsed += dt;
     this.waveZ += this.waveSpeed * dt;
 
@@ -271,6 +378,7 @@ export class WaveOcean {
 
     this.wwMat.uniforms.uTime.value = this.elapsed;
     this.wwMat.uniforms.uWaveZ.value = this.waveZ;
+    this.sparkleUniforms.uSparkleTime.value = this.elapsed;
 
     // Scroll surface foam texture so bubbles drift with the wave (slowly,
     // per FOAM_PARALLAX) and along X with the break sweep, while cancelling
@@ -296,6 +404,25 @@ export class WaveOcean {
     const REL_FRONT =  60;
     const halfStripW = WAVE_STRIP_W / 2;
 
+    // ── Global surface chop ──────────────────────────────────────────────
+    // A low-amplitude noise field offsetting every vertex's Y. Sampled in
+    // world coords + a slow time term so it stays put as the surfer moves
+    // through it (and animates slowly on its own). Tapered by edgeFactor
+    // so it doesn't bump the strip's left/right borders.
+    const CHOP_SAMPLE_SCALE = 0.25;   // 1/scale = wavelength (~4m bumps)
+    const CHOP_AMP          = 2;
+    const CHOP_TIME_SPEED   = 0.25;
+    const chopT = this.elapsed * CHOP_TIME_SPEED;
+
+    // Extra turbulent chop, applied ONLY where the whitewater mask is on
+    // (broken side / lip / trail). Higher frequency + larger amplitude +
+    // faster animation so the broken section reads as agitated, turbulent
+    // water rather than the same gentle chop as the rest of the surface.
+    const WW_CHOP_SAMPLE_SCALE = 0.6;   // ~1.7m bumps
+    const WW_CHOP_AMP          = 10;
+    const WW_CHOP_TIME_SPEED   = 0.1;
+    const wwChopT = this.elapsed * WW_CHOP_TIME_SPEED;
+
     for (let i = 0; i < posAttr.count; i++) {
       const wx = posAttr.getX(i);
       const wz = posAttr.getZ(i) + meshPosZ;
@@ -307,6 +434,17 @@ export class WaveOcean {
       const edgeDist = halfStripW - Math.abs(wx);
       const edgeFactor = Math.max(0, Math.min(1, edgeDist / WAVE_STRIP_EDGE_TAPER));
 
+      // Per-vertex chop: small +/- offset added to the wave height. Tapered
+      // by edgeFactor so the strip's left/right borders stay flat.
+      // Sampled in MESH-LOCAL Z (posAttr.getZ(i), constant per vertex)
+      // rather than world or wave-relative Z. World Z slides at surfer
+      // speed; wave-relative Z slides at (surfer - wave) speed (the
+      // surfer's Z velocity from physics — pumping, turns — differs from
+      // the wave's constant WAVE_SPEED). Mesh-local Z is fixed per vertex
+      // so only chopT drives change, regardless of any motion.
+      const posLocalZ = posAttr.getZ(i);
+      const chopY = (noise3(wx * CHOP_SAMPLE_SCALE, chopT, posLocalZ * CHOP_SAMPLE_SCALE) - 0.5) * 2 * CHOP_AMP * edgeFactor;
+
       if (rel < REL_BACK || rel > REL_FRONT) {
         // Outside the active main-wave band: only the unbroken background
         // crests contribute height. No foam / whitewater here.
@@ -314,17 +452,19 @@ export class WaveOcean {
           wz, waveZ, wx, breakX,
           this.peakAmp, this.sigmaFront, (this.sigmaFront * 0.7 + this.sigmaBack * 0.3),
         ) * edgeFactor;
-        posAttr.setY(i, bgY);
+        const yFinal = bgY + chopY;
+        posAttr.setY(i, yFinal);
         colAttr.setXYZ(i, COL_DEEP.r, COL_DEEP.g, COL_DEEP.b);
         foamBuf[i] = 0;
-        wwPos.setY(i, bgY + TRAIL_LIFT);
+        wwPos.setY(i, yFinal + TRAIL_LIFT);
         wwMask.setX(i, 0);
-        sfPos.setY(i, bgY + TRAIL_LIFT);
+        sfPos.setY(i, yFinal + TRAIL_LIFT);
         sfCol.setXYZ(i, 0, 0, 0);
         continue;
       }
       const h = waveHeightAt(wz, waveZ, wx, breakX, this.peakAmp, this.sigmaFront, this.sigmaBack) * edgeFactor;
-      posAttr.setY(i, h);
+      // hFinal is computed below, after the whitewater mask is known, so
+      // we can add extra turbulent chop in broken regions.
 
       // ── Whitewater mask: opaque foam on broken side / lip / forward trail ──
       const heightFactor = Math.min(1, h / (this.peakAmp * FOAM_HEIGHT_FRAC));
@@ -343,6 +483,14 @@ export class WaveOcean {
 
       const whitewater = Math.max(crestFoam, lipMask * 1.4, trailMask * 0.85);
       foamBuf[i] = crestFoam;   // only the crest foam drives normal perturbation
+
+      // Extra turbulent chop in broken regions — higher frequency, taller,
+      // scaled by the whitewater mask so it ramps up only where the wave
+      // is actually breaking. Sampled in mesh-local Z (same reasoning as
+      // the global chop above) so it never slides with any velocity.
+      const wwChopY = (noise3(wx * WW_CHOP_SAMPLE_SCALE, wwChopT, posLocalZ * WW_CHOP_SAMPLE_SCALE) - 0.5) * 2 * WW_CHOP_AMP * whitewater * edgeFactor;
+      const hFinal = h + chopY + wwChopY;
+      posAttr.setY(i, hFinal);
 
       // ── Surface foam mask: subtle detail near the wave crest only ──
       // Ramps up quickly so anything above a shallow threshold gets full
@@ -386,12 +534,25 @@ export class WaveOcean {
 
       colAttr.setXYZ(i, _tmp.r, _tmp.g, _tmp.b);
 
+      // Distance-from-surfer fade: foam at full strength close to the
+      // player, smoothly attenuating with horizontal distance so the parts
+      // of the wave that are visually "in the background" don't read as a
+      // bright white band.
+      const dx = wx - surferX;
+      const dz = wz - surferZ;
+      const distFromSurfer = Math.sqrt(dx * dx + dz * dz);
+      // Full strength within FOAM_NEAR, gone by FOAM_FAR.
+      const FOAM_NEAR = 25;
+      const FOAM_FAR  = 140;
+      const t = Math.max(0, Math.min(1, (distFromSurfer - FOAM_NEAR) / (FOAM_FAR - FOAM_NEAR)));
+      const foamFade = 1 - t * t * (3 - 2 * t);
+
       // Both overlays sit at the same height just above the water surface.
-      const overlayY = h + TRAIL_LIFT;
+      const overlayY = hFinal + TRAIL_LIFT;
       wwPos.setY(i, overlayY);
-      wwMask.setX(i, whitewater);
+      wwMask.setX(i, whitewater * foamFade);
       sfPos.setY(i, overlayY);
-      const a = surfaceMask * 0.1;
+      const a = surfaceMask * 0.1 * foamFade;
       sfCol.setXYZ(i, a, a, a);
     }
 

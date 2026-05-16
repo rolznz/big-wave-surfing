@@ -3,7 +3,7 @@ export const WAVE_AMP           = 50;    // crest height in world units // TODO:
 export const WAVE_SIGMA_FRONT   = 10;    // steepness of front face (smaller = steeper)
 export const WAVE_SIGMA_BACK    = 20.0;  // depth of back slope at the break point
 export const WAVE_X_DECAY       = 200;   // e-fold distance for amplitude on the clean shoulder (right of break)
-export const WAVE_X_BROKEN_DECAY = 150;   // e-fold distance for amplitude on the broken side (left of break) — shorter so whitewater dies down
+export const WAVE_X_BROKEN_DECAY = 200;   // e-fold distance for amplitude on the broken side (left of break) — shorter so whitewater dies down
 export const WAVE_X_SIGMA_SCALE = 60;    // every 60 X-units from break, sigmaBack grows by 1
 export const WAVE_PEAK_AHEAD_X  = 3;     // peak sits this far into the clean side of breakX, so the crest curls ahead of the whitewater
 export const WAVE_SPEED         = 10;    // units/sec toward +Z
@@ -64,7 +64,7 @@ export const STANDING_PHYSICS = {
   PADDLE_THRUST:    0,
   WATER_DRAG:       1.0,
   BRAKE_DRAG:       20.0,
-  TURN_SPEED:       3.0,
+  TURN_SPEED:       3.5,
   WAVE_PUSH_FACTOR: 5,
   FIN_GRIP_BASE:    4,
   FIN_GRIP_TURNING: 50,
@@ -159,7 +159,7 @@ export const CAMERA_CHASE = {
 // distance over DURATION seconds. Multiplier scales DISTANCE/HEIGHT in both
 // camera modes (and the chase FORWARD_BIAS) — 1.0 is the regular framing.
 export const CAMERA_INTRO = {
-  START_SCALE: 0.25,
+  START_SCALE: 0.025,
   DURATION:    5.0,
 } as const;
 
@@ -179,5 +179,5 @@ export const FOAM_PARALLAX = 0.1;
 // previous direction was held for at least PUMP_MIN_HOLD_S. Each pump adds
 // PUMP_IMPULSE to the surfer's velocity along their facing direction.
 export const PUMP_IMPULSE     = 5;     // forward Δv on each rail-flip pump
-export const PUMP_MIN_HOLD_S  = 0.2;   // previous direction must have been held this long
+export const PUMP_MIN_HOLD_S  = 0.1;   // previous direction must have been held this long
 
