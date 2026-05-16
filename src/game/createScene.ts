@@ -1,12 +1,18 @@
 import * as THREE from 'three';
 import { CAMERA_LENS } from './constants';
 import { createSky, Sky } from './sky';
+import { createDistantLand, DistantLand } from './distantLand';
+import { createShore, Shore } from './shore';
+import { createBirds, Birds } from './birds';
 
 export interface BaseScene {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   sky: Sky;
+  distantLand: DistantLand;
+  shore: Shore;
+  birds: Birds;
   dispose: () => void;
 }
 
@@ -23,6 +29,12 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
   scene.fog = new THREE.FogExp2(0xdbeef7, 0.002);
   const sky = createSky();
   scene.add(sky.mesh);
+  const distantLand = createDistantLand();
+  scene.add(distantLand.mesh);
+  const shore = createShore();
+  scene.add(shore.mesh);
+  const birds = createBirds();
+  scene.add(birds.group);
 
   const camera = new THREE.PerspectiveCamera(
     CAMERA_LENS.FOV,
@@ -55,8 +67,11 @@ export function createScene(canvas: HTMLCanvasElement): BaseScene {
 
   function dispose() {
     sky.dispose();
+    distantLand.dispose();
+    shore.dispose();
+    birds.dispose();
     renderer.dispose();
   }
 
-  return { renderer, scene, camera, sky, dispose };
+  return { renderer, scene, camera, sky, distantLand, shore, birds, dispose };
 }

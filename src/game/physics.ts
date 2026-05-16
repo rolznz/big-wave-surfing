@@ -4,6 +4,7 @@ import { Character } from './character';
 import {
   PRONE_PHYSICS, STANDING_PHYSICS, FLAT_WATER_DRAG,
   BREAK_START_X, SURFER_X_LIMIT, WAVE_SPEED,
+  LEAD_DRAG_THRESHOLD, LEAD_DRAG_GAIN,
   BOARD_LIFT, RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
   AIR_LAUNCH_MIN_SPEED, AIR_LAUNCH_MAX_ANGLE_DEG, AIR_LAUNCH_FRONT_OFFSET,
   AIR_LAUNCH_VY_FACTOR, AIR_LAUNCH_VY_MAX, AIR_LAUNCH_PEAK_WINDOW,
@@ -253,7 +254,11 @@ export function stepSurfer(
 
   // 5. Drag
   const baseDrag = input.down ? P.WATER_DRAG + P.BRAKE_DRAG : P.WATER_DRAG;
-  const drag = baseDrag + FLAT_WATER_DRAG * (1 - waveCouple);
+  const leadDist = s.z - s.waveZ;
+  const leadDrag = leadDist > LEAD_DRAG_THRESHOLD
+    ? (leadDist - LEAD_DRAG_THRESHOLD) * LEAD_DRAG_GAIN
+    : 0;
+  const drag = baseDrag + FLAT_WATER_DRAG * (1 - waveCouple) + leadDrag;
   const speed = Math.hypot(s.vx, s.vz);
   if (speed > 0) {
     const decel = Math.min(speed, drag * dt);

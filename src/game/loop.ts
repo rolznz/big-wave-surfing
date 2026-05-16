@@ -7,7 +7,7 @@ import {
   WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
   WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
   BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
-  MISSED_BY,
+  MISSED_BY, SHORE_Z_OFFSET,
   SURFER_START_X, SURFER_START_Z,
   POPUP_MIN_SPEED,
   BOARD_LIFT, TRAIL_LIFT,
@@ -104,7 +104,7 @@ export function createLoop(
   level: LevelConfig,
   opts: LoopOptions,
 ): LoopHandle {
-  const { renderer, scene, camera, sky } = bs;
+  const { renderer, scene, camera, sky, distantLand, shore, birds } = bs;
 
   // ── Level-derived params ─────────────────────────────────────────────────
   const rng = mulberry32(level.seed);
@@ -502,6 +502,15 @@ export function createLoop(
       return { gradX, gradZ };
     }
 
+    // 9b. Shore — surfer has overrun the wave and run aground on the sandy
+    //     beach (rendered by shore.ts at waveZ + SHORE_Z_OFFSET).
+    if (!state.airborne && state.z > state.waveZ + SHORE_Z_OFFSET) {
+      phase = 'wiped_out';
+      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
+      ragdoll.activate(state, gradX, gradZ, physicsParams);
+      return { gradX, gradZ };
+    }
+
     // 10. Obstacle collision → wipeout.
     const waveHHere = waveHeightAt(state.z, state.waveZ, state.x, state.breakX,
       peakAmp, sigmaFront, sigmaBack);
@@ -720,6 +729,9 @@ export function createLoop(
     rebuildTrail(now);
     updateCamera(dt);
     sky.update(rig.position, dt);
+    distantLand.update(rig.position);
+    shore.update(rig.position.x, state.waveZ);
+    birds.update(dt, rig.position);
 
     const progress = Math.max(
       0,

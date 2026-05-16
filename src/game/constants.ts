@@ -19,7 +19,7 @@ export const FACE_TINT_STRENGTH    = 0.65;
 export const BACK_DARKEN_STRENGTH  = 0.65;
 
 // ─── Breaking front (sweeps left → right along X) ────────────────────────────
-export const BREAK_START_X  = -235;
+export const BREAK_START_X  = -250;
 export const BREAK_SPEED    = 5;
 export const WIPEOUT_GRACE  = 5;
 export const WIPEOUT_HEIGHT = 0.5;
@@ -27,6 +27,11 @@ export const WIPEOUT_HEIGHT = 0.5;
 // Miss threshold: if the wave crest passes the surfer by more than this many
 // units (waveZ - surferZ), the wave is considered missed and the run ends.
 export const MISSED_BY      = 10;
+
+// Shore boundary: distance ahead of the wave (in +Z, the wave's motion
+// direction) where the sandy beach starts. If the surfer overruns the wave
+// and crosses this line they hit dry sand and wipe out.
+export const SHORE_Z_OFFSET = 100;
 
 // ─── Ocean mesh ──────────────────────────────────────────────────────────────
 // Wave strip mesh — dense, sized to just cover the wave's active footprint.
@@ -41,8 +46,8 @@ export const WAVE_STRIP_OFFSET_Z   = -200;
 export const WAVE_STRIP_EDGE_TAPER = 20;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
-export const SURFER_START_X = -200;
-export const SURFER_START_Z = -60;
+export const SURFER_START_X = -190;
+export const SURFER_START_Z = -55;
 export const SURFER_X_LIMIT = 1000;
 
 // ─── Stance physics profiles ─────────────────────────────────────────────────
@@ -92,12 +97,20 @@ export const AIR_LAUNCH_VY_MAX    = 300;    // cap on launch upward velocity
 export const AIR_GRAVITY          = 30;    // units/sec² downward while airborne
 export const AIR_TURN_SPEED       = 7.5;   // rad/sec while airborne
 export const AIR_REDIRECT_RATE    = 5;     // per-second blend of velocity toward heading
-export const AIR_DRAG             = 0.5;   // mild horizontal damping in flight
+export const AIR_DRAG             = 0.05;   // mild horizontal damping in flight
 
 // Extra drag applied off the wave, scaled by (1 - waveCouple). Flat water
 // brakes the surfer hard so momentum from the wave bleeds off quickly once
 // they outrun the wave or get spat off the back.
 export const FLAT_WATER_DRAG = 2.0;
+
+// Lead drag — kicks in only once the surfer is more than this many units in
+// front of the wave (surferZ - waveZ, +Z = the wave's direction of travel).
+// Past the threshold the drag scales linearly with the lead distance, so the
+// player can't run arbitrarily far ahead of the wave without it eating their
+// speed.
+export const LEAD_DRAG_THRESHOLD = 40;
+export const LEAD_DRAG_GAIN      = 1;
 
 // ─── Board / rig placement ───────────────────────────────────────────────────
 export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)
