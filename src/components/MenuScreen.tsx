@@ -282,8 +282,8 @@ export default function MenuScreen({
             <div style={cardDesc}>{level.description}</div>
             <div style={cardMeta}>
               Difficulty {difficultyStars(level)}
-              {(level.obstacles ?? []).length > 0 && ` · ${(level.obstacles ?? []).reduce((s, o) => s + o.count, 0)} rocks`}
-              {(level.numStars ?? 0) > 0 && ` · collect ${level.minStars ?? level.numStars}/${level.numStars} ★`}
+              {(level.obstaclePlacements?.length ?? 0) > 0 && ` · ${level.obstaclePlacements!.length} rocks`}
+              {(level.starPlacements?.length ?? 0) > 0 && ` · collect ${level.minStars ?? level.starPlacements!.length}/${level.starPlacements!.length} ★`}
             </div>
           </button>
         ))}

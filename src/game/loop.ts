@@ -93,6 +93,21 @@ export interface LoopOptions {
    * size multiplier (1.0 = base): small for PUMP, larger for big airs.
    */
   onTrick?: (text: string, durationMs: number, points: number, scale: number) => void;
+  /**
+   * Optional path sink for the level editor. Fires once per surfing frame
+   * with both the wave surface Y at the surfer's spot and the surfer's actual
+   * Y (which lifts above the surface during airs). The editor uses surfaceY +
+   * breakX to bake rock placements via waveHeightAt; surferY drives the
+   * side-view Y plot so airs show up as bumps the designer can drop stars on.
+   */
+  onEditorFrame?: (frame: {
+    x: number;
+    y: number;         // wave surface Y at the surfer's (x, z)
+    surferY: number;   // surfer's actual Y this frame (airborne lifts above surface)
+    z: number;
+    zOffset: number;
+    breakX: number;
+  }) => void;
 }
 
 /**
@@ -174,7 +189,7 @@ export function createLoop(
     rng,
   });
   const obstacleSys: ObstacleSystem = createObstacles(scene, level, rng);
-  const starSys: StarSystem = createStars(scene, level, rng, obstacleSys.obstacles);
+  const starSys: StarSystem = createStars(scene, level, rng);
 
   // Rig group = the thing we orient to the wave surface. Character + Board
   // live inside it in their own local frame.
@@ -596,7 +611,7 @@ export function createLoop(
     state.foamSink += (targetSink - state.foamSink) * sinkAlpha;
 
     const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + groundLift - state.foamSink;
-    if (obstacleSys.check(state.x, surferY, state.z, state.waveZ)) {
+    if (obstacleSys.check(state.x, surferY, state.z)) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
       ragdoll.activate(state, gradX, gradZ, physicsParams);
@@ -605,7 +620,7 @@ export function createLoop(
 
     // 10b. Star pickup. On a collection, surface a "★ N/M" notification so
     // the player can track progress without needing the top bar.
-    if (starSys.tryCollect(state.x, surferY, state.z, state.waveZ)) {
+    if (starSys.tryCollect(state.x, surferY, state.z)) {
       fireTrick(`★ ${starSys.collectedCount}/${starSys.total}`, NOTIF_STAR_MS, 0, NOTIF_SCALE_STAR);
     }
 
@@ -816,6 +831,28 @@ export function createLoop(
       frame.stance = state.stance;
       frame.phase = phase;
       recording.push(frame);
+      if (opts.onEditorFrame) {
+        const surfaceY = waveHeightAt(
+          state.z, state.waveZ, state.x, state.breakX,
+          peakAmp, sigmaFront, sigmaBack,
+        );
+        // Mirror the surferY formula used in updatePhysics (line ~611): airborne
+        // surfers are at airY+BOARD_LIFT; grounded surfers ride the surface plus
+        // the stance-dependent board lift, minus any foam sink. state.foamSink
+        // was just mutated by updatePhysics(dt) so it's current.
+        const groundLift = state.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
+        const surferY = state.airborne
+          ? state.airY + BOARD_LIFT
+          : surfaceY + groundLift - state.foamSink;
+        opts.onEditorFrame({
+          x: state.x,
+          y: surfaceY,
+          surferY,
+          z: state.z,
+          zOffset: state.z - state.waveZ,
+          breakX: state.breakX,
+        });
+      }
       if (phase !== 'surfing') {
         ghostStore.add({ levelId: level.id, frames: recording.slice() });
       }
@@ -833,10 +870,7 @@ export function createLoop(
       wave.update(dt, state.breakX, state.z, state.x);
     }
 
-    const sampleHeight = (x: number, z: number) =>
-      waveHeightAt(z, wave.waveZ, x, state.breakX, peakAmp, sigmaFront, sigmaBack);
-    obstacleSys.update(wave.waveZ, sampleHeight);
-    starSys.update(wave.waveZ, sampleHeight, dt);
+    starSys.update(dt);
 
     // Ghosts step regardless of live phase — they keep replaying after the
     // live player wipes out so the surrounding scene stays populated.

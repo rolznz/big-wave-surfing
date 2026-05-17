@@ -1,20 +1,19 @@
 import * as THREE from 'three';
-import { SURFER_START_X } from './constants';
 import type { LevelConfig } from './levels';
-import { levelGoalX, levelNumStars } from './levels';
 import type { Rng } from './rng';
-import type { Obstacle, HeightSampler } from './obstacles';
 
-// Stars live in the wave's moving frame (like obstacles): fixed world-X,
-// wave-relative Z so they stay on the face as the wave travels forward.
-// Each star hovers slightly above the water and spins for visibility.
+// Stars are stationary in world space — the wave moves past them, same as
+// rocks. Authored Y is the surfer's recorded height at the snap frame, so a
+// star above the path corresponds to an air the designer did during recording.
 
 export interface Star {
   x: number;
-  zOffset: number;
+  y: number;
+  z: number;
   radius: number;
   mesh: THREE.Mesh;
-  worldY: number;
+  /** Y the mesh sits at before bob is applied. Authored y + STAR_HOVER. */
+  baseY: number;
   collected: boolean;
 }
 
@@ -22,9 +21,9 @@ export interface StarSystem {
   readonly stars: readonly Star[];
   readonly total: number;
   readonly collectedCount: number;
-  update(waveZ: number, sampleHeight: HeightSampler, dt: number): void;
+  update(dt: number): void;
   /** If the point is within a star's pickup volume, mark it collected. */
-  tryCollect(x: number, y: number, z: number, waveZ: number): Star | null;
+  tryCollect(x: number, y: number, z: number): Star | null;
   /** Uncollected stars whose X lies behind the surfer by at least MISS_PAD. */
   missedCount(surferX: number): number;
   dispose(): void;
@@ -33,12 +32,6 @@ export interface StarSystem {
 const STAR_RADIUS = 2;          // outer points of the star shape
 const STAR_PICKUP_PAD = 1.5;    // generous XZ pickup radius beyond body
 const STAR_HOVER = 1.6;         // units above the water surface
-const Z_OFFSET_MIN = 5;
-const Z_OFFSET_MAX = 30;
-// Stars must sit outside a rock's (radius + pad) so you can always approach
-// a star without scraping the neighbouring rock.
-const MIN_PAD_FROM_OBSTACLE = 6;
-const MIN_SEPARATION_FROM_STAR = 16;
 // A star counts as "missed" once the surfer has moved past it in X by more
 // than the pickup radius — at that point it's no longer reachable.
 const MISS_PAD = STAR_RADIUS + STAR_PICKUP_PAD;
@@ -104,49 +97,24 @@ export function createStars(
   scene: THREE.Scene,
   level: LevelConfig,
   rng: Rng,
-  obstacles: readonly Obstacle[],
 ): StarSystem {
-  const total = levelNumStars(level);
   const stars: Star[] = [];
   const disposables: THREE.BufferGeometry[] = [];
   const materials: THREE.Material[] = [];
 
-  if (total > 0) {
-    const goalX = levelGoalX(level);
-    const xMin = SURFER_START_X + 50;
-    const xMax = goalX - 15;
-
-    for (let i = 0; i < total; i++) {
-      let x = 0, zOffset = 0;
-      let placed = false;
-      // More tries than rocks because star placement must avoid two sets.
-      for (let tries = 0; tries < 40; tries++) {
-        x = xMin + rng() * (xMax - xMin);
-        zOffset = Z_OFFSET_MIN + rng() * (Z_OFFSET_MAX - Z_OFFSET_MIN);
-        const hitsRock = obstacles.some(
-          (o) => Math.hypot(o.x - x, o.zOffset - zOffset)
-                 < o.radius + STAR_RADIUS + MIN_PAD_FROM_OBSTACLE,
-        );
-        if (hitsRock) continue;
-        const hitsStar = stars.some(
-          (s) => Math.hypot(s.x - x, s.zOffset - zOffset) < MIN_SEPARATION_FROM_STAR,
-        );
-        if (hitsStar) continue;
-        placed = true;
-        break;
-      }
-      if (!placed) continue;  // very crowded level — skip rather than overlap
-
-      const mesh = makeStarMesh(STAR_RADIUS);
-      mesh.position.set(x, 0, 0);
-      scene.add(mesh);
-      disposables.push(mesh.geometry as THREE.BufferGeometry);
-      materials.push(mesh.material as THREE.Material);
-      stars.push({
-        x, zOffset, radius: STAR_RADIUS, mesh, worldY: 0, collected: false,
-      });
-    }
+  for (const p of level.starPlacements ?? []) {
+    const baseY = p.y + STAR_HOVER;
+    const mesh = makeStarMesh(STAR_RADIUS);
+    mesh.position.set(p.x, baseY, p.z);
+    scene.add(mesh);
+    disposables.push(mesh.geometry as THREE.BufferGeometry);
+    materials.push(mesh.material as THREE.Material);
+    stars.push({
+      x: p.x, y: p.y, z: p.z,
+      radius: STAR_RADIUS, mesh, baseY, collected: false,
+    });
   }
+  const total = stars.length;
 
   // Shared geometry for all burst shards — small spiky tetrahedra, yellow.
   const shardGeo = new THREE.TetrahedronGeometry(0.5, 0);
@@ -248,34 +216,30 @@ export function createStars(
     stars,
     total,
     get collectedCount() { return collectedCount; },
-    update(waveZ, sampleHeight, dt) {
+    update(dt) {
       spin += dt;
       for (const s of stars) {
         if (s.collected) continue;
-        const z = waveZ + s.zOffset;
-        const surfaceY = sampleHeight(s.x, z);
-        // Small vertical bob so stars feel alive even when the surfer is
-        // facing away from the wave's chop.
+        // Small in-place vertical bob + spin so the star still feels alive
+        // without sliding around with the wave.
         const bob = Math.sin(spin * 2 + s.x * 0.07) * 0.25;
-        s.worldY = surfaceY + STAR_HOVER + bob;
-        s.mesh.position.set(s.x, s.worldY, z);
+        s.mesh.position.y = s.baseY + bob;
         s.mesh.rotation.y = spin * 2;
       }
       updateBursts(dt);
     },
-    tryCollect(x, y, z, waveZ) {
+    tryCollect(x, y, z) {
       for (const s of stars) {
         if (s.collected) continue;
-        const sz = waveZ + s.zOffset;
-        const xz = Math.hypot(s.x - x, sz - z);
+        const xz = Math.hypot(s.x - x, s.z - z);
         if (xz >= s.radius + STAR_PICKUP_PAD) continue;
         // Vertical reach matches hover distance + star size, so the surfer
-        // needs to be near the water surface (not flying above).
-        if (Math.abs(y - s.worldY) > s.radius + STAR_HOVER) continue;
+        // needs to be near the star's authored height (not way below or above).
+        if (Math.abs(y - s.baseY) > s.radius + STAR_HOVER) continue;
         s.collected = true;
         s.mesh.visible = false;
         collectedCount++;
-        spawnBurst(s.x, s.worldY, waveZ + s.zOffset);
+        spawnBurst(s.x, s.baseY, s.z);
         return s;
       }
       return null;

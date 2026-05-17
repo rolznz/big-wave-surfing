@@ -1,8 +1,27 @@
-import { SURFER_START_X, SURFER_X_LIMIT } from './constants';
+import {
+  SURFER_START_X,
+  SURFER_X_LIMIT,
+  WAVE_AMP,
+  WAVE_SIGMA_FRONT,
+  WAVE_SIGMA_BACK,
+} from "./constants";
 
-export interface ObstacleSpec {
-  kind: 'rock';
-  count: number;
+/** Rock placement in world coords. Obstacles are stationary in the world — the wave moves through them. */
+export interface ObstaclePlacement {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+}
+
+/** Star placement in world coords. Stars are stationary in the world — the wave
+ *  moves past them, same as rocks. Authored by snapping to a recorded path frame
+ *  in the editor, so the Y is the surfer's actual height at that frame (which
+ *  for airs is well above the wave surface). */
+export interface StarPlacement {
+  x: number;
+  y: number;
+  z: number;
 }
 
 export type Difficulty = 1 | 2 | 3 | 4 | 5;
@@ -20,18 +39,19 @@ export interface LevelConfig {
   waveThicknessMultiplier?: number;
   /** Scales the lateral length of the level. 1 = full run from spawn to SURFER_X_LIMIT. 0.1 = a tenth of that. Default 1. */
   gameDurationMultiplier?: number;
-  obstacles?: ObstacleSpec[];
-  /** Number of stars to scatter on the wave. Default 0. */
-  numStars?: number;
-  /** Stars required to successfully complete the level. Default = numStars. */
+  /** Stars required to successfully complete the level. Default = starPlacements.length. */
   minStars?: number;
+  /** Hand-authored rock placements (world coords). */
+  obstaclePlacements?: ObstaclePlacement[];
+  /** Hand-authored star placements (wave-relative). */
+  starPlacements?: StarPlacement[];
 }
 
 export const LEVELS: LevelConfig[] = [
   {
-    id: 'mellow',
-    name: '1 · Mellow Point',
-    description: 'A clean, easy wave to learn the lines.',
+    id: "mellow",
+    name: "1 · Mellow Point",
+    description: "A clean, easy wave to learn the lines.",
     seed: 1,
     difficulty: 1,
     waveAmpMultiplier: 0.5,
@@ -39,14 +59,11 @@ export const LEVELS: LevelConfig[] = [
     breakSpeedMultiplier: 2.6,
     waveThicknessMultiplier: 1.4,
     gameDurationMultiplier: 0.3,
-    obstacles: [],
-    numStars: 3,
-    minStars: 2,
   },
   {
-    id: 'reef',
-    name: '2 · Reef Break',
-    description: 'A punchier wave with a few scattered rocks.',
+    id: "reef",
+    name: "2 · Reef Break",
+    description: "A punchier wave with a few scattered rocks.",
     seed: 42,
     difficulty: 2,
     waveAmpMultiplier: 0.8,
@@ -54,14 +71,11 @@ export const LEVELS: LevelConfig[] = [
     breakSpeedMultiplier: 2.6,
     waveThicknessMultiplier: 1.4,
     gameDurationMultiplier: 0.3,
-    obstacles: [{ kind: 'rock', count: 5 }],
-    numStars: 5,
-    minStars: 3,
   },
   {
-    id: 'heavy',
-    name: '3 · Heavy Water',
-    description: 'Big wave, fast break, plenty of rocks to dodge.',
+    id: "heavy",
+    name: "3 · Heavy Water",
+    description: "Big wave, fast break, plenty of rocks to dodge.",
     seed: 1338,
     difficulty: 3,
     waveAmpMultiplier: 1,
@@ -69,28 +83,23 @@ export const LEVELS: LevelConfig[] = [
     breakSpeedMultiplier: 2.6,
     waveThicknessMultiplier: 1.4,
     gameDurationMultiplier: 0.4,
-    obstacles: [{ kind: 'rock', count: 12 }],
-    numStars: 7,
-    minStars: 4,
   },
   {
-    id: 'monster',
-    name: '4 · Monster Swell',
-    description: 'Towering wall of water. One shot, make it count.',
+    id: "monster",
+    name: "4 · Monster Swell",
+    description: "Towering wall of water. One shot, make it count.",
     seed: 9001,
     difficulty: 4,
     waveAmpMultiplier: 1.5,
     waveSpeedMultiplier: 2.4,
     breakSpeedMultiplier: 4,
     waveThicknessMultiplier: 1.4,
-    obstacles: [{ kind: 'rock', count: 20 }],
-    numStars: 10,
-    minStars: 6,
   },
   {
-    id: 'star_run',
-    name: '5 · Starlit Mountain',
-    description: 'No rocks — just a colossal, screaming-fast wave and stars to chase.',
+    id: "star_run",
+    name: "5 · Starlit Mountain",
+    description:
+      "No rocks — just a colossal, screaming-fast wave and stars to chase.",
     seed: 2718,
     difficulty: 5,
     waveAmpMultiplier: 1,
@@ -98,25 +107,7 @@ export const LEVELS: LevelConfig[] = [
     waveThicknessMultiplier: 1.4,
     breakSpeedMultiplier: 2.6,
     gameDurationMultiplier: 0.4,
-    obstacles: [],
-    numStars: 15,
-    minStars: 10,
   },
-  /*{
-    id: 'the_hill',
-    name: '6 · The Hill',
-    description: 'Something out of a horror movie.',
-    seed: 2718,
-    difficulty: 5,
-    waveAmpMultiplier: 1.5,
-    waveSpeedMultiplier: 2.4,
-    breakSpeedMultiplier: 4,
-    waveThicknessMultiplier: 2.5,
-    gameDurationMultiplier: 0.7,
-    obstacles: [{ kind: 'rock', count: 50 }],
-    numStars: 7,
-    minStars: 7,
-  },*/
 ];
 
 export function levelWaveAmp(level: LevelConfig, baseAmp: number): number {
@@ -128,7 +119,10 @@ export function levelWaveSpeed(level: LevelConfig, baseSpeed: number): number {
 export function levelBreakSpeed(level: LevelConfig, baseSpeed: number): number {
   return baseSpeed * (level.breakSpeedMultiplier ?? 1);
 }
-export function levelWaveThickness(level: LevelConfig, baseSigma: number): number {
+export function levelWaveThickness(
+  level: LevelConfig,
+  baseSigma: number,
+): number {
   return baseSigma * (level.waveThicknessMultiplier ?? 1);
 }
 export function levelGoalX(level: LevelConfig): number {
@@ -136,9 +130,25 @@ export function levelGoalX(level: LevelConfig): number {
   return SURFER_START_X + m * (SURFER_X_LIMIT - SURFER_START_X);
 }
 export function levelNumStars(level: LevelConfig): number {
-  return level.numStars ?? 0;
+  return level.starPlacements?.length ?? 0;
 }
 export function levelMinStars(level: LevelConfig): number {
   // Default: all placed stars must be collected.
   return level.minStars ?? levelNumStars(level);
+}
+
+/** Wave-shape parameters derived from a level config. The editor needs these to
+ *  evaluate the wave surface at arbitrary world coords when baking the Y of a
+ *  click into a fixed ObstaclePlacement. */
+export interface LevelWaveParams {
+  peakAmp: number;
+  sigmaFront: number;
+  sigmaBack: number;
+}
+export function levelWaveParams(level: LevelConfig): LevelWaveParams {
+  return {
+    peakAmp: levelWaveAmp(level, WAVE_AMP),
+    sigmaFront: levelWaveThickness(level, WAVE_SIGMA_FRONT),
+    sigmaBack: levelWaveThickness(level, WAVE_SIGMA_BACK),
+  };
 }

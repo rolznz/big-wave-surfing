@@ -9,6 +9,16 @@ const SHOW_HOTKEYS_KEY = 'bws.showHotkeys';
 const SHOW_MENU_BUTTON_KEY = 'bws.showMenuButton';
 const CURRENT_LEVEL_KEY = 'bws.currentLevelId';
 
+// Editor mode: ?editor=1 in the URL. Parsed once on module load — toggling
+// requires a page refresh, which is fine for a dev-only authoring flow.
+const EDITOR_MODE = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('editor') === '1';
+  } catch {
+    return false;
+  }
+})();
+
 function readBool(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key);
@@ -103,6 +113,7 @@ export default function App() {
       showAdvancedOptions={showAdvancedOptions}
       autoStand={autoStand}
       showMenuButton={showMenuButton}
+      editorMode={EDITOR_MODE}
     />
   );
 }

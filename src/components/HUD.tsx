@@ -19,10 +19,16 @@ interface Props {
   showAdvancedOptions: boolean;
   showMenuButton: boolean;
   notifications: NotificationState[];
+  editorMode: boolean;
+  /** True while the editor is in recording mode and the player is surfing. */
+  recording: boolean;
+  /** True while the editor is previewing the assembled level. */
+  previewing: boolean;
   onToggleWireframe: () => void;
   onRetry: () => void;
   onNextLevel: () => void;   // advance to next level (or return to menu if last)
   onExit: () => void;        // back to menu
+  onExitPreview: () => void; // back to editor overlay from preview
   hasNextLevel: boolean;
 }
 
@@ -229,9 +235,91 @@ const missedWarning: React.CSSProperties = {
   animation: 'bws-pulse 1.1s ease-in-out infinite',
 };
 
+const recordingBadge: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.2rem',
+  left: '1.2rem',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.4rem',
+  padding: '0.35rem 0.7rem',
+  background: 'rgba(120, 20, 20, 0.55)',
+  border: '1px solid rgba(255, 120, 120, 0.7)',
+  borderRadius: '999px',
+  color: '#ffd6d6',
+  fontSize: 'clamp(0.7rem, 1.4vw, 0.85rem)',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+  backdropFilter: 'blur(4px)',
+  pointerEvents: 'none',
+};
+
+const recordingDot: React.CSSProperties = {
+  width: '0.55rem',
+  height: '0.55rem',
+  borderRadius: '50%',
+  background: '#ff4d4d',
+  boxShadow: '0 0 6px #ff4d4d',
+  animation: 'bws-rec-blink 1.1s ease-in-out infinite',
+};
+
+const previewingBadge: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.2rem',
+  left: '1.2rem',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.4rem',
+  padding: '0.35rem 0.7rem',
+  background: 'rgba(20, 90, 50, 0.55)',
+  border: '1px solid rgba(120, 220, 160, 0.7)',
+  borderRadius: '999px',
+  color: '#d6ffe2',
+  fontSize: 'clamp(0.7rem, 1.4vw, 0.85rem)',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+  backdropFilter: 'blur(4px)',
+  pointerEvents: 'none',
+};
+
+const previewingDot: React.CSSProperties = {
+  width: '0.55rem',
+  height: '0.55rem',
+  borderRadius: '50%',
+  background: '#4dff8a',
+  boxShadow: '0 0 6px #4dff8a',
+};
+
+const exitPreviewBtn: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.2rem',
+  right: '1.5rem',
+  padding: '0.5rem 0.9rem',
+  fontFamily: "'Segoe UI', system-ui, sans-serif",
+  fontSize: 'clamp(0.8rem, 1.6vw, 0.95rem)',
+  fontWeight: 700,
+  color: '#0a1622',
+  background: '#43d6ff',
+  border: '1px solid #43d6ff',
+  borderRadius: '0.4rem',
+  cursor: 'pointer',
+  pointerEvents: 'auto',
+  textShadow: 'none',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+  zIndex: 40,
+};
+
 const PULSE_KEYFRAMES = `@keyframes bws-pulse {
   0%, 100% { opacity: 0.7; transform: translateY(-50%) scale(1); }
   50%      { opacity: 1;   transform: translateY(-50%) scale(1.06); }
+}
+@keyframes bws-rec-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
 }
 @keyframes bws-notif-in {
   0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
@@ -326,9 +414,9 @@ function StarCounter({
 
 export default function HUD({
   status, level, wireframe, showAdvancedOptions, showMenuButton,
-  notifications,
+  notifications, recording, previewing,
   onToggleWireframe,
-  onRetry, onNextLevel, onExit, hasNextLevel,
+  onRetry, onNextLevel, onExit, onExitPreview, hasNextLevel,
 }: Props) {
   const {
     phase, rideTime, speed, progress, stats, trickScore, balance,
@@ -340,6 +428,23 @@ export default function HUD({
     return (
       <>
         <style>{PULSE_KEYFRAMES}</style>
+        {recording && (
+          <div style={recordingBadge}>
+            <span style={recordingDot} />
+            <span>Recording</span>
+          </div>
+        )}
+        {previewing && (
+          <>
+            <div style={previewingBadge}>
+              <span style={previewingDot} />
+              <span>Previewing</span>
+            </div>
+            <button type="button" style={exitPreviewBtn} onClick={onExitPreview}>
+              Exit preview
+            </button>
+          </>
+        )}
         {starsMissed > 0 && (
           <div style={missedWarning}>
             ★ {starsMissed} missed
@@ -411,35 +516,52 @@ export default function HUD({
   } else if (phase === 'completed') {
     title = 'WAVE COMPLETED';
     accent = { color: '#bfffce' };
-    primaryLabel = hasNextLevel ? 'Next level' : 'Back to menu';
-    primaryAction = hasNextLevel ? onNextLevel : onExit;
+    if (previewing) {
+      primaryLabel = 'Back to editor';
+      primaryAction = onExitPreview;
+    } else {
+      primaryLabel = hasNextLevel ? 'Next level' : 'Back to menu';
+      primaryAction = hasNextLevel ? onNextLevel : onExit;
+    }
   }
 
   return (
-    <div style={overlay}>
-      <div style={{ ...big, ...accent }}>{title}</div>
-      <div style={sub}>{level.name}</div>
-      <StatsPanel
-        stats={stats}
-        rideTime={rideTime}
-        starsCollected={starsCollected}
-        starsTotal={starsTotal}
-        starsRequired={starsRequired}
-        trickScore={trickScore}
-      />
-      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', pointerEvents: 'auto' }}>
-        <button type="button" style={topRightButton} onClick={primaryAction}>
-          {primaryLabel}
+    <>
+      {previewing && (
+        <button type="button" style={exitPreviewBtn} onClick={onExitPreview}>
+          Exit preview
         </button>
-        {phase === 'completed' && hasNextLevel && (
-          <button type="button" style={topRightButton} onClick={onRetry}>
-            Retry
+      )}
+      <div style={overlay}>
+        <div style={{ ...big, ...accent }}>{title}</div>
+        <div style={sub}>{level.name}</div>
+        <StatsPanel
+          stats={stats}
+          rideTime={rideTime}
+          starsCollected={starsCollected}
+          starsTotal={starsTotal}
+          starsRequired={starsRequired}
+          trickScore={trickScore}
+        />
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', pointerEvents: 'auto' }}>
+          <button type="button" style={topRightButton} onClick={primaryAction}>
+            {primaryLabel}
           </button>
-        )}
-        <button type="button" style={topRightButton} onClick={onExit}>
-          Menu
-        </button>
+          {phase === 'completed' && !previewing && hasNextLevel && (
+            <button type="button" style={topRightButton} onClick={onRetry}>
+              Retry
+            </button>
+          )}
+          {previewing && phase !== 'completed' && (
+            <button type="button" style={topRightButton} onClick={onRetry}>
+              Retry preview
+            </button>
+          )}
+          <button type="button" style={topRightButton} onClick={onExit}>
+            Menu
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
