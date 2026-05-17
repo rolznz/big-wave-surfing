@@ -19,16 +19,10 @@ interface Props {
   showAdvancedOptions: boolean;
   showMenuButton: boolean;
   notifications: NotificationState[];
-  editorMode: boolean;
-  /** True while the editor is in recording mode and the player is surfing. */
-  recording: boolean;
-  /** True while the editor is previewing the assembled level. */
-  previewing: boolean;
   onToggleWireframe: () => void;
   onRetry: () => void;
   onNextLevel: () => void;   // advance to next level (or return to menu if last)
   onExit: () => void;        // back to menu
-  onExitPreview: () => void; // back to editor overlay from preview
   hasNextLevel: boolean;
 }
 
@@ -216,112 +210,7 @@ const statsBox: React.CSSProperties = {
   minWidth: 'min(320px, 80vw)',
 };
 
-const missedWarning: React.CSSProperties = {
-  position: 'fixed',
-  top: '50%',
-  right: '1.5rem',
-  transform: 'translateY(-50%)',
-  padding: '0.6rem 0.9rem',
-  background: 'rgba(120, 20, 20, 0.6)',
-  border: '1px solid rgba(255, 140, 140, 0.7)',
-  borderRadius: '0.4rem',
-  color: '#ffd6d6',
-  fontSize: 'clamp(0.85rem, 1.8vw, 1rem)',
-  fontWeight: 600,
-  letterSpacing: '0.03em',
-  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
-  backdropFilter: 'blur(4px)',
-  pointerEvents: 'none',
-  animation: 'bws-pulse 1.1s ease-in-out infinite',
-};
-
-const recordingBadge: React.CSSProperties = {
-  position: 'fixed',
-  top: '1.2rem',
-  left: '1.2rem',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.4rem',
-  padding: '0.35rem 0.7rem',
-  background: 'rgba(120, 20, 20, 0.55)',
-  border: '1px solid rgba(255, 120, 120, 0.7)',
-  borderRadius: '999px',
-  color: '#ffd6d6',
-  fontSize: 'clamp(0.7rem, 1.4vw, 0.85rem)',
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
-  backdropFilter: 'blur(4px)',
-  pointerEvents: 'none',
-};
-
-const recordingDot: React.CSSProperties = {
-  width: '0.55rem',
-  height: '0.55rem',
-  borderRadius: '50%',
-  background: '#ff4d4d',
-  boxShadow: '0 0 6px #ff4d4d',
-  animation: 'bws-rec-blink 1.1s ease-in-out infinite',
-};
-
-const previewingBadge: React.CSSProperties = {
-  position: 'fixed',
-  top: '1.2rem',
-  left: '1.2rem',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.4rem',
-  padding: '0.35rem 0.7rem',
-  background: 'rgba(20, 90, 50, 0.55)',
-  border: '1px solid rgba(120, 220, 160, 0.7)',
-  borderRadius: '999px',
-  color: '#d6ffe2',
-  fontSize: 'clamp(0.7rem, 1.4vw, 0.85rem)',
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
-  backdropFilter: 'blur(4px)',
-  pointerEvents: 'none',
-};
-
-const previewingDot: React.CSSProperties = {
-  width: '0.55rem',
-  height: '0.55rem',
-  borderRadius: '50%',
-  background: '#4dff8a',
-  boxShadow: '0 0 6px #4dff8a',
-};
-
-const exitPreviewBtn: React.CSSProperties = {
-  position: 'fixed',
-  top: '1.2rem',
-  right: '1.5rem',
-  padding: '0.5rem 0.9rem',
-  fontFamily: "'Segoe UI', system-ui, sans-serif",
-  fontSize: 'clamp(0.8rem, 1.6vw, 0.95rem)',
-  fontWeight: 700,
-  color: '#0a1622',
-  background: '#43d6ff',
-  border: '1px solid #43d6ff',
-  borderRadius: '0.4rem',
-  cursor: 'pointer',
-  pointerEvents: 'auto',
-  textShadow: 'none',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-  zIndex: 40,
-};
-
-const PULSE_KEYFRAMES = `@keyframes bws-pulse {
-  0%, 100% { opacity: 0.7; transform: translateY(-50%) scale(1); }
-  50%      { opacity: 1;   transform: translateY(-50%) scale(1.06); }
-}
-@keyframes bws-rec-blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
-}
-@keyframes bws-notif-in {
+const NOTIF_KEYFRAMES = `@keyframes bws-notif-in {
   0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
   60%  { opacity: 1; transform: translateY(0)   scale(1.04); }
   100% { opacity: 1; transform: translateY(0)   scale(1); }
@@ -365,30 +254,19 @@ function NotificationStack({ notifications }: { notifications: NotificationState
 const UNITS_TO_MS = 0.3;
 
 function StatsPanel({
-  stats, rideTime, starsCollected, starsTotal, starsRequired, trickScore,
+  stats, rideTime, trickScore,
 }: {
   stats: RunStats;
   rideTime: number;
-  starsCollected: number;
-  starsTotal: number;
-  starsRequired: number;
   trickScore: number;
 }) {
-  const score = finalScore(trickScore, starsCollected, starsTotal, rideTime);
+  const score = finalScore(trickScore, rideTime);
   return (
     <div style={statsBox}>
       <div>Time: <strong>{rideTime.toFixed(2)} s</strong></div>
       <div>Top speed: <strong>{(stats.maxSpeed * UNITS_TO_MS).toFixed(1)} m/s</strong></div>
       <div>Avg speed: <strong>{(stats.avgSpeed * UNITS_TO_MS).toFixed(1)} m/s</strong></div>
       <div>Turns: <strong>{stats.turns}</strong></div>
-      {starsTotal > 0 && (
-        <div>
-          Stars: <strong>{starsCollected}/{starsTotal}</strong>
-          {starsRequired < starsTotal && (
-            <span style={{ opacity: 0.7 }}> (need {starsRequired})</span>
-          )}
-        </div>
-      )}
       <div>Tricks: <strong>{trickScore}</strong></div>
       <div style={{ marginTop: '0.4rem', fontSize: '1.15em' }}>
         Score: <strong style={{ color: '#ffe14a' }}>{score}</strong>
@@ -397,59 +275,19 @@ function StatsPanel({
   );
 }
 
-function StarCounter({
-  collected, total, required,
-}: { collected: number; total: number; required: number }) {
-  if (total <= 0) return null;
-  const enough = collected >= required;
-  return (
-    <span style={{ color: enough ? '#ffe14a' : '#fff', fontWeight: 600 }}>
-      ★ {collected}/{total}
-      {/* {required < total && (
-        <span style={{ opacity: 0.75, fontWeight: 400 }}> (need {required})</span>
-      )} */}
-    </span>
-  );
-}
-
 export default function HUD({
   status, level, wireframe, showAdvancedOptions, showMenuButton,
-  notifications, recording, previewing,
+  notifications,
   onToggleWireframe,
-  onRetry, onNextLevel, onExit, onExitPreview, hasNextLevel,
+  onRetry, onNextLevel, onExit, hasNextLevel,
 }: Props) {
-  const {
-    phase, rideTime, speed, progress, stats, trickScore, balance,
-    starsCollected, starsTotal, starsRequired, starsMissed,
-  } = status;
+  const { phase, rideTime, speed, progress, stats, trickScore, balance } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
 
   if (phase === 'surfing') {
     return (
       <>
-        <style>{PULSE_KEYFRAMES}</style>
-        {recording && (
-          <div style={recordingBadge}>
-            <span style={recordingDot} />
-            <span>Recording</span>
-          </div>
-        )}
-        {previewing && (
-          <>
-            <div style={previewingBadge}>
-              <span style={previewingDot} />
-              <span>Previewing</span>
-            </div>
-            <button type="button" style={exitPreviewBtn} onClick={onExitPreview}>
-              Exit preview
-            </button>
-          </>
-        )}
-        {starsMissed > 0 && (
-          <div style={missedWarning}>
-            ★ {starsMissed} missed
-          </div>
-        )}
+        <style>{NOTIF_KEYFRAMES}</style>
         {showAdvancedOptions && (
           <>
             <div style={balanceWrap}>
@@ -469,16 +307,6 @@ export default function HUD({
             </div>
             <div style={scoreHud}>
               {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s
-              {starsTotal > 0 && (
-                <>
-                  &nbsp;·&nbsp;
-                  <StarCounter
-                    collected={starsCollected}
-                    total={starsTotal}
-                    required={starsRequired}
-                  />
-                </>
-              )}
               &nbsp;·&nbsp; <span style={{ color: '#ffe14a', fontWeight: 600 }}>{trickScore} pts</span>
             </div>
             <div style={topRightStack}>
@@ -502,7 +330,7 @@ export default function HUD({
   let title = '';
   let accent: React.CSSProperties = {};
   let primaryLabel = 'Retry';
-  let primaryAction = onRetry;
+  let primaryAction: () => void = onRetry;
 
   if (phase === 'wiped_out') {
     title = 'WIPEOUT!';
@@ -510,58 +338,31 @@ export default function HUD({
   } else if (phase === 'missed_wave') {
     title = 'MISSED THE WAVE';
     accent = { color: '#fff2b3' };
-  } else if (phase === 'no_stars') {
-    title = 'NOT ENOUGH STARS';
-    accent = { color: '#ffdf6a' };
   } else if (phase === 'completed') {
     title = 'WAVE COMPLETED';
     accent = { color: '#bfffce' };
-    if (previewing) {
-      primaryLabel = 'Back to editor';
-      primaryAction = onExitPreview;
-    } else {
-      primaryLabel = hasNextLevel ? 'Next level' : 'Back to menu';
-      primaryAction = hasNextLevel ? onNextLevel : onExit;
-    }
+    primaryLabel = hasNextLevel ? 'Next level' : 'Back to menu';
+    primaryAction = hasNextLevel ? onNextLevel : onExit;
   }
 
   return (
-    <>
-      {previewing && (
-        <button type="button" style={exitPreviewBtn} onClick={onExitPreview}>
-          Exit preview
+    <div style={overlay}>
+      <div style={{ ...big, ...accent }}>{title}</div>
+      <div style={sub}>{level.name}</div>
+      <StatsPanel stats={stats} rideTime={rideTime} trickScore={trickScore} />
+      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', pointerEvents: 'auto' }}>
+        <button type="button" style={topRightButton} onClick={primaryAction}>
+          {primaryLabel}
         </button>
-      )}
-      <div style={overlay}>
-        <div style={{ ...big, ...accent }}>{title}</div>
-        <div style={sub}>{level.name}</div>
-        <StatsPanel
-          stats={stats}
-          rideTime={rideTime}
-          starsCollected={starsCollected}
-          starsTotal={starsTotal}
-          starsRequired={starsRequired}
-          trickScore={trickScore}
-        />
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', pointerEvents: 'auto' }}>
-          <button type="button" style={topRightButton} onClick={primaryAction}>
-            {primaryLabel}
+        {phase === 'completed' && hasNextLevel && (
+          <button type="button" style={topRightButton} onClick={onRetry}>
+            Retry
           </button>
-          {phase === 'completed' && !previewing && hasNextLevel && (
-            <button type="button" style={topRightButton} onClick={onRetry}>
-              Retry
-            </button>
-          )}
-          {previewing && phase !== 'completed' && (
-            <button type="button" style={topRightButton} onClick={onRetry}>
-              Retry preview
-            </button>
-          )}
-          <button type="button" style={topRightButton} onClick={onExit}>
-            Menu
-          </button>
-        </div>
+        )}
+        <button type="button" style={topRightButton} onClick={onExit}>
+          Menu
+        </button>
       </div>
-    </>
+    </div>
   );
 }

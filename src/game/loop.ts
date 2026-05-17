@@ -14,14 +14,13 @@ import {
   MISSED_BY, SHORE_Z_OFFSET,
   SURFER_START_X, SURFER_START_Z,
   POPUP_MIN_SPEED,
-  BOARD_LIFT, PRONE_BOARD_LIFT, TRAIL_LIFT,
+  TRAIL_LIFT,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
   CAMERA_FIXED, CAMERA_CHASE, CAMERA_INTRO,
   SCORE_TIME_REF_S,
   NOTIF_AIR_MS, NOTIF_AIR_ROT_MS_BASE, NOTIF_AIR_ROT_MS_PER_STEP,
   NOTIF_SCALE_AIR, NOTIF_SCALE_AIR_ROT_BASE, NOTIF_SCALE_AIR_ROT_STEP,
-  NOTIF_STAR_MS, NOTIF_SCALE_STAR,
   TRICK_POINTS_AIR, TRICK_POINTS_AIR_360, TRICK_POINTS_AIR_540,
   TRICK_POINTS_AIR_720, TRICK_POINTS_AIR_STEP_BEYOND_720,
 } from './constants';
@@ -33,10 +32,8 @@ function airRotationPoints(step: number): number {
   return TRICK_POINTS_AIR_720 + (step - 4) * TRICK_POINTS_AIR_STEP_BEYOND_720;
 }
 import type { LevelConfig } from './levels';
-import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, levelGoalX, levelMinStars } from './levels';
+import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, levelGoalX } from './levels';
 import { mulberry32 } from './rng';
-import { createObstacles, type ObstacleSystem } from './obstacles';
-import { createStars, type StarSystem } from './stars';
 import {
   SurferState, PhysicsInput, PhysicsParams,
   stepSurfer, updateRigTransform, updateCharacterPose,
@@ -47,7 +44,7 @@ import { Ragdoll } from './ragdoll';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type GamePhase  = 'surfing' | 'wiped_out' | 'missed_wave' | 'no_stars' | 'completed';
+export type GamePhase  = 'surfing' | 'wiped_out' | 'missed_wave' | 'completed';
 export type Stance     = 'prone' | 'standing';
 export type CameraMode = 'fixed' | 'chase';
 
@@ -67,10 +64,6 @@ export interface GameStatus {
   speed: number;
   progress: number;   // 0..1 — lateral progress toward goalX
   goalX: number;
-  starsCollected: number;
-  starsTotal: number;
-  starsRequired: number;
-  starsMissed: number;   // uncollected stars the surfer has passed in X
   trickScore: number;    // sum of trick points this run
   /** Surfer balance, 0..1. Drains in whitewater; wipeout at 0. */
   balance: number;
@@ -93,37 +86,18 @@ export interface LoopOptions {
    * size multiplier (1.0 = base): small for PUMP, larger for big airs.
    */
   onTrick?: (text: string, durationMs: number, points: number, scale: number) => void;
-  /**
-   * Optional path sink for the level editor. Fires once per surfing frame
-   * with both the wave surface Y at the surfer's spot and the surfer's actual
-   * Y (which lifts above the surface during airs). The editor uses surfaceY +
-   * breakX to bake rock placements via waveHeightAt; surferY drives the
-   * side-view Y plot so airs show up as bumps the designer can drop stars on.
-   */
-  onEditorFrame?: (frame: {
-    x: number;
-    y: number;         // wave surface Y at the surfer's (x, z)
-    surferY: number;   // surfer's actual Y this frame (airborne lifts above surface)
-    z: number;
-    zOffset: number;
-    breakX: number;
-  }) => void;
 }
 
 /**
- * End-of-run score: `trickScore × (starsCollected / starsTotal) × (60 / rideTime)`,
- * rounded. Stars factor is 1 when the level has no stars; rideTime is clamped
- * away from 0.
+ * End-of-run score: `trickScore × (60 / rideTime)`, rounded.
+ * rideTime is clamped away from 0.
  */
 export function finalScore(
   trickScore: number,
-  starsCollected: number,
-  starsTotal: number,
   rideTime: number,
 ): number {
-  const starFactor = starsTotal > 0 ? starsCollected / starsTotal : 1;
   const timeFactor = SCORE_TIME_REF_S / Math.max(rideTime, 0.001);
-  return Math.round(trickScore * starFactor * timeFactor);
+  return Math.round(trickScore * timeFactor);
 }
 
 export type TouchMode = 'paddle' | 'brake';
@@ -172,7 +146,6 @@ export function createLoop(
   const sigmaFront = levelWaveThickness(level, WAVE_SIGMA_FRONT);
   const sigmaBack = levelWaveThickness(level, WAVE_SIGMA_BACK);
   const goalX = levelGoalX(level);
-  const starsRequired = levelMinStars(level);
 
   const physicsParams: PhysicsParams = {
     peakAmp, waveSpeed, waveSpeedMul, breakSpeed, sigmaFront, sigmaBack,
@@ -188,9 +161,6 @@ export function createLoop(
     sigmaBack,
     rng,
   });
-  const obstacleSys: ObstacleSystem = createObstacles(scene, level, rng);
-  const starSys: StarSystem = createStars(scene, level, rng);
-
   // Rig group = the thing we orient to the wave surface. Character + Board
   // live inside it in their own local frame.
   const rig = new THREE.Group();
@@ -231,6 +201,8 @@ export function createLoop(
     prevSteerHoldT: 0,
     carveHoldDir: 0,
     carveHoldT: 0,
+    stallHoldT: 0,
+    backwardsHoldT: 0,
     airRotationAccum: 0,
     prevAirAngle: 0,
     balance: 1,
@@ -563,11 +535,9 @@ export function createLoop(
       if (sign !== 0) lastTouchTurnSign = sign;
     }
 
-    // 8. Reached the right-hand goal — completed if star quota met, otherwise
-    //    it's a fail (the player rode the whole wave but didn't pick up enough
-    //    stars to clear the level).
+    // 8. Reached the right-hand goal — level complete.
     if (state.x >= goalX) {
-      phase = starSys.collectedCount >= starsRequired ? 'completed' : 'no_stars';
+      phase = 'completed';
       state.vx = 0;
       state.vz = 0;
       return { gradX, gradZ };
@@ -594,12 +564,7 @@ export function createLoop(
       return { gradX, gradZ };
     }
 
-    // 10. Obstacle collision → wipeout.
-    const waveHHere = waveHeightAt(state.z, state.waveZ, state.x, state.breakX,
-      peakAmp, sigmaFront, sigmaBack);
-    const groundLift = state.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
-
-    // Foam mask at the surfer — drives both the balance drain below and the
+    // 10. Foam mask at the surfer — drives both the balance drain below and the
     // smoothed rig sink. Smoothing prevents a sharp Y snap when crossing the
     // foam boundary.
     const foamAtSurfer = state.airborne ? 0 : Math.min(1, foamMaskAt(
@@ -609,20 +574,6 @@ export function createLoop(
     const targetSink = foamAtSurfer * FOAM_SURFACE_SINK_MAX;
     const sinkAlpha = 1 - Math.exp(-dt / FOAM_SINK_TAU);
     state.foamSink += (targetSink - state.foamSink) * sinkAlpha;
-
-    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + groundLift - state.foamSink;
-    if (obstacleSys.check(state.x, surferY, state.z)) {
-      phase = 'wiped_out';
-      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
-      ragdoll.activate(state, gradX, gradZ, physicsParams);
-      return { gradX, gradZ };
-    }
-
-    // 10b. Star pickup. On a collection, surface a "★ N/M" notification so
-    // the player can track progress without needing the top bar.
-    if (starSys.tryCollect(state.x, surferY, state.z)) {
-      fireTrick(`★ ${starSys.collectedCount}/${starSys.total}`, NOTIF_STAR_MS, 0, NOTIF_SCALE_STAR);
-    }
 
     // 11. Whitewater balance — drain in foam, recover when clear. Frozen
     //     while airborne so airs that land in foam credit the trick first
@@ -831,28 +782,6 @@ export function createLoop(
       frame.stance = state.stance;
       frame.phase = phase;
       recording.push(frame);
-      if (opts.onEditorFrame) {
-        const surfaceY = waveHeightAt(
-          state.z, state.waveZ, state.x, state.breakX,
-          peakAmp, sigmaFront, sigmaBack,
-        );
-        // Mirror the surferY formula used in updatePhysics (line ~611): airborne
-        // surfers are at airY+BOARD_LIFT; grounded surfers ride the surface plus
-        // the stance-dependent board lift, minus any foam sink. state.foamSink
-        // was just mutated by updatePhysics(dt) so it's current.
-        const groundLift = state.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
-        const surferY = state.airborne
-          ? state.airY + BOARD_LIFT
-          : surfaceY + groundLift - state.foamSink;
-        opts.onEditorFrame({
-          x: state.x,
-          y: surfaceY,
-          surferY,
-          z: state.z,
-          zOffset: state.z - state.waveZ,
-          breakX: state.breakX,
-        });
-      }
       if (phase !== 'surfing') {
         ghostStore.add({ levelId: level.id, frames: recording.slice() });
       }
@@ -869,8 +798,6 @@ export function createLoop(
       ragdoll.step(dt, state, physicsParams);
       wave.update(dt, state.breakX, state.z, state.x);
     }
-
-    starSys.update(dt);
 
     // Ghosts step regardless of live phase — they keep replaying after the
     // live player wipes out so the surrounding scene stays populated.
@@ -896,10 +823,6 @@ export function createLoop(
       speed: Math.hypot(state.vx, state.vz),
       progress,
       goalX,
-      starsCollected: starSys.collectedCount,
-      starsTotal: starSys.total,
-      starsRequired,
-      starsMissed: starSys.missedCount(state.x),
       trickScore,
       balance: state.balance,
       stats: { maxSpeed, avgSpeed, turns },
@@ -924,8 +847,6 @@ export function createLoop(
     board.dispose();
     trailGeo.dispose();
     trailMat.dispose();
-    obstacleSys.dispose();
-    starSys.dispose();
     ghostManager.dispose();
   }
 

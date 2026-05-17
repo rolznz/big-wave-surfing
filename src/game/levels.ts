@@ -6,24 +6,6 @@ import {
   WAVE_SIGMA_BACK,
 } from "./constants";
 
-/** Rock placement in world coords. Obstacles are stationary in the world — the wave moves through them. */
-export interface ObstaclePlacement {
-  x: number;
-  y: number;
-  z: number;
-  radius: number;
-}
-
-/** Star placement in world coords. Stars are stationary in the world — the wave
- *  moves past them, same as rocks. Authored by snapping to a recorded path frame
- *  in the editor, so the Y is the surfer's actual height at that frame (which
- *  for airs is well above the wave surface). */
-export interface StarPlacement {
-  x: number;
-  y: number;
-  z: number;
-}
-
 export type Difficulty = 1 | 2 | 3 | 4 | 5;
 
 export interface LevelConfig {
@@ -39,12 +21,6 @@ export interface LevelConfig {
   waveThicknessMultiplier?: number;
   /** Scales the lateral length of the level. 1 = full run from spawn to SURFER_X_LIMIT. 0.1 = a tenth of that. Default 1. */
   gameDurationMultiplier?: number;
-  /** Stars required to successfully complete the level. Default = starPlacements.length. */
-  minStars?: number;
-  /** Hand-authored rock placements (world coords). */
-  obstaclePlacements?: ObstaclePlacement[];
-  /** Hand-authored star placements (wave-relative). */
-  starPlacements?: StarPlacement[];
 }
 
 export const LEVELS: LevelConfig[] = [
@@ -58,12 +34,12 @@ export const LEVELS: LevelConfig[] = [
     waveSpeedMultiplier: 2.4,
     breakSpeedMultiplier: 2.6,
     waveThicknessMultiplier: 1.4,
-    gameDurationMultiplier: 0.3,
+    gameDurationMultiplier: 0.1,
   },
   {
     id: "reef",
     name: "2 · Reef Break",
-    description: "A punchier wave with a few scattered rocks.",
+    description: "A punchier wave to test your edge control.",
     seed: 42,
     difficulty: 2,
     waveAmpMultiplier: 0.8,
@@ -75,7 +51,7 @@ export const LEVELS: LevelConfig[] = [
   {
     id: "heavy",
     name: "3 · Heavy Water",
-    description: "Big wave, fast break, plenty of rocks to dodge.",
+    description: "Big wave, fast break.",
     seed: 1338,
     difficulty: 3,
     waveAmpMultiplier: 1,
@@ -96,10 +72,9 @@ export const LEVELS: LevelConfig[] = [
     waveThicknessMultiplier: 1.4,
   },
   {
-    id: "star_run",
-    name: "5 · Starlit Mountain",
-    description:
-      "No rocks — just a colossal, screaming-fast wave and stars to chase.",
+    id: "screamer",
+    name: "5 · Screamer",
+    description: "A colossal, screaming-fast wave.",
     seed: 2718,
     difficulty: 5,
     waveAmpMultiplier: 1,
@@ -129,17 +104,7 @@ export function levelGoalX(level: LevelConfig): number {
   const m = level.gameDurationMultiplier ?? 1;
   return SURFER_START_X + m * (SURFER_X_LIMIT - SURFER_START_X);
 }
-export function levelNumStars(level: LevelConfig): number {
-  return level.starPlacements?.length ?? 0;
-}
-export function levelMinStars(level: LevelConfig): number {
-  // Default: all placed stars must be collected.
-  return level.minStars ?? levelNumStars(level);
-}
 
-/** Wave-shape parameters derived from a level config. The editor needs these to
- *  evaluate the wave surface at arbitrary world coords when baking the Y of a
- *  click into a fixed ObstaclePlacement. */
 export interface LevelWaveParams {
   peakAmp: number;
   sigmaFront: number;

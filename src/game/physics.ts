@@ -15,6 +15,11 @@ import {
   NOTIF_SCALE_PUMP, NOTIF_SCALE_CARVE,
   CARVE_LEAN_THRESHOLD, CARVE_MIN_FWD_SPEED, CARVE_MIN_HOLD_S,
   TRICK_POINTS_PUMP, TRICK_POINTS_CARVE, CARVE_SCORE_EXPONENT,
+  STALL_MIN_HOLD_S, TRICK_POINTS_STALL, STALL_SCORE_EXPONENT,
+  NOTIF_STALL_MS, NOTIF_SCALE_STALL,
+  BACKWARDS_MIN_SPEED, BACKWARDS_MIN_HOLD_S,
+  TRICK_POINTS_BACKWARDS, BACKWARDS_SCORE_EXPONENT,
+  NOTIF_BACKWARDS_MS, NOTIF_SCALE_BACKWARDS,
   BALANCE_WOBBLE_FREQ_HZ, BALANCE_WOBBLE_ROLL_MAX, BALANCE_DRAG_MAX,
 } from './constants';
 import type { GamePhase, Stance } from './loop';
@@ -50,6 +55,10 @@ export interface SurferState {
   carveHoldDir: number;
   /** Seconds the current carve has been held above CARVE_LEAN_THRESHOLD on this side. */
   carveHoldT: number;
+  /** Seconds the surfer has been holding the brake input while standing. */
+  stallHoldT: number;
+  /** Seconds the surfer has been moving opposite to their heading. */
+  backwardsHoldT: number;
   /** Cumulative angular delta (rad) since the current air launch. Unwrapped via wrapPi per frame. */
   airRotationAccum: number;
   /** s.angle sampled at the previous airborne frame, used to compute dAngle. */
@@ -345,6 +354,39 @@ export function stepSurfer(
     }
     s.carveHoldDir = dir;
     s.carveHoldT = 0;
+  }
+
+  // 4c. Stall detection — standing surfer holding the brake (down) accumulates
+  // stall time. Ends as soon as the input is released, stance changes, or the
+  // surfer leaves the ground; fires STALL! if held ≥ STALL_MIN_HOLD_S, with
+  // super-linear scoring like carve.
+  const stalling = s.stance === 'standing' && input.down;
+  if (stalling) {
+    s.stallHoldT += dt;
+  } else {
+    if (s.stallHoldT >= STALL_MIN_HOLD_S) {
+      const ratio = s.stallHoldT / STALL_MIN_HOLD_S;
+      const points = Math.round(TRICK_POINTS_STALL * Math.pow(ratio, STALL_SCORE_EXPONENT));
+      const scale = Math.min(2.0, NOTIF_SCALE_STALL + s.stallHoldT * 0.4);
+      onTrick?.('STALL!', NOTIF_STALL_MS, points, scale);
+    }
+    s.stallHoldT = 0;
+  }
+
+  // 4d. Backwards detection — standing surfer whose velocity points opposite
+  // to their heading (e.g. landed a 180° air still moving down the line).
+  // Same super-linear scoring as carve.
+  const backwards = s.stance === 'standing' && vDotFwd <= -BACKWARDS_MIN_SPEED;
+  if (backwards) {
+    s.backwardsHoldT += dt;
+  } else {
+    if (s.backwardsHoldT >= BACKWARDS_MIN_HOLD_S) {
+      const ratio = s.backwardsHoldT / BACKWARDS_MIN_HOLD_S;
+      const points = Math.round(TRICK_POINTS_BACKWARDS * Math.pow(ratio, BACKWARDS_SCORE_EXPONENT));
+      const scale = Math.min(2.0, NOTIF_SCALE_BACKWARDS + s.backwardsHoldT * 0.4);
+      onTrick?.('BACKWARDS!', NOTIF_BACKWARDS_MS, points, scale);
+    }
+    s.backwardsHoldT = 0;
   }
 
   // 5. Drag
