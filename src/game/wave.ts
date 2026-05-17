@@ -6,7 +6,8 @@ import {
   WAVE_STRIP_W, WAVE_STRIP_D, WAVE_STRIP_SEG_X, WAVE_STRIP_SEG_Z,
   WAVE_STRIP_OFFSET_Z, WAVE_STRIP_EDGE_TAPER,
   FOAM_CHOP_SCALE, FOAM_CHOP_SPEED, FOAM_CHOP_STRENGTH,
-  FOAM_HEIGHT_FRAC, FOAM_PARALLAX,
+  FOAM_HEIGHT_FRAC, FOAM_PARALLAX, FOAM_CASCADE_SPEED,
+  BREAK_SPEED,
   TRAIL_LIFT,
   FACE_TINT_STRENGTH, BACK_DARKEN_STRENGTH,
 } from './constants';
@@ -47,6 +48,59 @@ export function waveHeightAt(
   const sigmaBack = sigmaBackBase + xDistClean / WAVE_X_SIGMA_SCALE;
   const sigma = rel >= 0 ? sigmaFrontBase : sigmaBack;
   return amp * Math.exp(-(rel * rel) / (2 * sigma * sigma));
+}
+
+// ─── Whitewater foam mask ────────────────────────────────────────────────────
+
+/**
+ * Foam coverage at world (wx, wz) for the given wave state. Returns the
+ * combined mask (crest foam + lip rope + forward trail). The trail's forward
+ * extent down the face is gated by `timeSinceBroken = (breakX - wx) / BREAK_SPEED`,
+ * so when a column first breaks the foam appears at the lip only and rolls
+ * forward over `25 / FOAM_CASCADE_SPEED` seconds.
+ *
+ * `crestFoamOut` (optional length-1 buffer) receives just the crest-foam
+ * component, used by the mesh updater to drive normal perturbation.
+ *
+ * Same formula is used by the per-vertex mesh shader and the per-frame
+ * balance hit-test — single source of truth keeps visual ≡ gameplay.
+ */
+export function foamMaskAt(
+  wx: number, wz: number,
+  waveZ: number, breakX: number,
+  peakAmp: number = WAVE_AMP,
+  sigmaFront: number = WAVE_SIGMA_FRONT,
+  sigmaBack: number = WAVE_SIGMA_BACK,
+  edgeFactor: number = 1,
+  crestFoamOut?: { value: number },
+): number {
+  const h = waveHeightAt(wz, waveZ, wx, breakX, peakAmp, sigmaFront, sigmaBack) * edgeFactor;
+  const heightFactor = Math.min(1, h / (peakAmp * FOAM_HEIGHT_FRAC));
+  const rel = wz - waveZ;
+
+  const foamDist = breakX - wx;
+  const crestFoam = Math.max(0, Math.min(1, foamDist / 4)) * heightFactor;
+  const lipMask   = Math.max(0, 1 - Math.abs(wx - breakX) / 3) * heightFactor;
+
+  const trailX = Math.max(0, Math.min(1, foamDist / 15));
+  const trailZFront = Math.max(0, Math.min(1, 1 - rel / 25));
+  const trailZBack  = Math.max(0, Math.min(1, (rel + 4) / 4));
+  const trailMask = trailX * trailZFront * trailZBack;
+
+  // Cascade gate — applies down the face (rel > 0). When breakX has just
+  // passed this X column, extentAhead is 0 so foam only exists at the lip
+  // (rel ≤ 0). Over `25 / FOAM_CASCADE_SPEED` seconds it rolls forward
+  // until the full 25-unit front-face extent is covered. Back of crest
+  // (rel ≤ 0) is never gated — the lip itself is always foaming once broken.
+  const timeSinceBroken = Math.max(0, foamDist / BREAK_SPEED);
+  const extentAhead = timeSinceBroken * FOAM_CASCADE_SPEED;
+  const CASCADE_FALLOFF = 4;
+  const cascadeGate = rel <= 0
+    ? 1
+    : Math.max(0, Math.min(1, 1 - (rel - extentAhead) / CASCADE_FALLOFF));
+
+  if (crestFoamOut) crestFoamOut.value = crestFoam * cascadeGate;
+  return Math.max(crestFoam, lipMask * 1.4, trailMask * 0.85) * cascadeGate;
 }
 
 // ─── Cheap 3D value noise (for foam surface chop) ────────────────────────────
@@ -125,6 +179,7 @@ const COL_CREST       = new THREE.Color(0x00ccff);
 const COL_FOAM        = new THREE.Color(0xddf5ff);
 const COL_TRANSLUCENT = new THREE.Color(0x40ddc8);   // backlit turquoise for the front face
 const _tmp = new THREE.Color();
+const _crestOut = { value: 0 };
 
 function vertexColor(height: number, foam: number, out: THREE.Color): void {
   const t = Math.min(1, height / WAVE_AMP);
@@ -467,22 +522,15 @@ float sparkleNoise2(vec2 p) {
       // we can add extra turbulent chop in broken regions.
 
       // ── Whitewater mask: opaque foam on broken side / lip / forward trail ──
-      const heightFactor = Math.min(1, h / (this.peakAmp * FOAM_HEIGHT_FRAC));
-
-      const foamDist = breakX - wx;                         // >0 on broken side
-      const foamX = Math.max(0, Math.min(1, foamDist / 4));
-      const crestFoam = foamX * heightFactor;
-
-      const lipDist = Math.abs(wx - breakX);
-      const lipMask = Math.max(0, 1 - lipDist / 3) * heightFactor;
-
-      const trailX = Math.max(0, Math.min(1, foamDist / 15));
-      const trailZFront = Math.max(0, Math.min(1, 1 - rel / 25));
-      const trailZBack  = Math.max(0, Math.min(1, (rel + 4) / 4));
-      const trailMask = trailX * trailZFront * trailZBack;
-
-      const whitewater = Math.max(crestFoam, lipMask * 1.4, trailMask * 0.85);
-      foamBuf[i] = crestFoam;   // only the crest foam drives normal perturbation
+      // Single source of truth for foam — physics balance hit-test calls the
+      // same foamMaskAt(). The crest-foam component (drives normal
+      // perturbation) is read back via the scratch out-param.
+      const whitewater = foamMaskAt(
+        wx, wz, waveZ, breakX,
+        this.peakAmp, this.sigmaFront, this.sigmaBack,
+        edgeFactor, _crestOut,
+      );
+      foamBuf[i] = _crestOut.value;   // only the crest foam drives normal perturbation
 
       // Extra turbulent chop in broken regions — higher frequency, taller,
       // scaled by the whitewater mask so it ramps up only where the wave
@@ -503,12 +551,12 @@ float sparkleNoise2(vec2 p) {
       const zFade = Math.exp(-(rel * rel) / (2 * SURFACE_FOAM_Z_SIGMA * SURFACE_FOAM_Z_SIGMA));
       const surfaceMask = surfaceRamp * zFade * Math.max(0, 1 - whitewater);
 
-      vertexColor(h, crestFoam, _tmp);
+      vertexColor(h, _crestOut.value, _tmp);
 
       // Front-face translucent tint: lerp toward backlit turquoise on the
       // steep face. Strongest at mid-face (rel ≈ WAVE_SIGMA_FRONT) and on the
       // upper half of the wave; suppressed where foam takes over.
-      if (rel > 0 && crestFoam < 0.05) {
+      if (rel > 0 && _crestOut.value < 0.05) {
         const faceT   = Math.min(1, rel / WAVE_SIGMA_FRONT);
         const heightT = Math.min(1, h / (this.peakAmp * 0.5));
         _tmp.lerp(COL_TRANSLUCENT, faceT * heightT * FACE_TINT_STRENGTH);

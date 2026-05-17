@@ -30,6 +30,7 @@ function initialStatus(level: LevelConfig): GameStatus {
     starsRequired: level.minStars ?? total,
     starsMissed: 0,
     trickScore: 0,
+    balance: 1,
     stats: { maxSpeed: 0, avgSpeed: 0, turns: 0 },
   };
 }

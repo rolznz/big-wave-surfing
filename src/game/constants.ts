@@ -21,8 +21,41 @@ export const BACK_DARKEN_STRENGTH  = 0.65;
 // ─── Breaking front (sweeps left → right along X) ────────────────────────────
 export const BREAK_START_X  = -250;
 export const BREAK_SPEED    = 5;
-export const WIPEOUT_GRACE  = 5;
-export const WIPEOUT_HEIGHT = 0.5;
+
+// ─── Balance (whitewater drain) ──────────────────────────────────────────────
+// Balance is 1 at full, 0 = wipeout. Drains while the surfer is in
+// whitewater foam and recovers when clear. At full foam exposure (mask ≥
+// FOAM_DRAIN_FULL) full balance lasts BALANCE_DRAIN_TIME seconds.
+export const BALANCE_DRAIN_TIME    = 4.0;
+export const BALANCE_RECOVER_TIME  = 2.0;
+export const FOAM_DRAIN_FULL       = 0.6;
+export const FOAM_DRAIN_THRESHOLD  = 0.15;
+
+// ─── Balance wobble (low-balance instability) ────────────────────────────────
+// As balance drops the surfer rolls side-to-side and gets pushed laterally as
+// if losing footing. Both scale with (1 - balance)^2 so the effect ramps in
+// non-linearly — full balance feels stable, near-zero feels chaotic.
+export const BALANCE_WOBBLE_FREQ_HZ   = 1.8;   // sway frequency in Hz
+export const BALANCE_WOBBLE_ROLL_MAX  = 0.55;  // radians (~31°) at balance=0
+export const BALANCE_PUSH_MAX         = 12;    // lateral accel (units/sec²) at balance=0
+export const BALANCE_DRAG_MAX         = 30;    // extra drag (units/sec²) at balance=0
+
+// ─── Foam cascade ────────────────────────────────────────────────────────────
+// Speed (units/sec along +Z, down the face) at which whitewater rolls forward
+// after the break has swept past a given X column. Combined with the natural
+// 25-unit forward extent of the trail, ~25/FOAM_CASCADE_SPEED seconds to
+// reach full reach on each newly-broken column.
+export const FOAM_CASCADE_SPEED    = 5.0;
+
+// How much to sink the surfer below the bare wave surface in foamy regions —
+// the bare wave height sits well above the visible foam surface in broken
+// areas, leaving the rig looking like it floats in midair on top of the
+// whitewater. Subtracted from the rig Y, scaled by the foam mask.
+export const FOAM_SURFACE_SINK_MAX = 5;
+// Time constant (seconds) of the exponential low-pass applied to the sink
+// when entering/leaving foam — avoids snapping the rig Y as the surfer
+// crosses the foam boundary.
+export const FOAM_SINK_TAU         = 0.25;
 
 // Miss threshold: if the wave crest passes the surfer by more than this many
 // units (waveZ - surferZ), the wave is considered missed and the run ends.
@@ -198,7 +231,7 @@ export const FOAM_PARALLAX = 0.1;
 // A pump fires when the steering input flips direction (left↔right) and the
 // previous direction was held for at least PUMP_MIN_HOLD_S. Each pump adds
 // PUMP_IMPULSE to the surfer's velocity along their facing direction.
-export const PUMP_IMPULSE     = 10;     // forward Δv on each rail-flip pump
+export const PUMP_IMPULSE     = 5;     // forward Δv on each rail-flip pump
 export const PUMP_MIN_HOLD_S  = 0.1;   // previous direction must have been held this long
 // Max idle time between releasing the previous direction and pressing the
 // opposite one. Beyond this the prior direction is "stale" and a pump
@@ -246,7 +279,11 @@ export const CARVE_MIN_HOLD_S     = 0.4;
 //   round(trickScore × (starsCollected / starsTotal) × (SCORE_TIME_REF_S / rideTime))
 // starsTotal == 0 → star factor is treated as 1.
 export const TRICK_POINTS_PUMP                  = 10;
+// Carve points scale as TRICK_POINTS_CARVE × (holdTime / CARVE_MIN_HOLD_S)^CARVE_SCORE_EXPONENT.
+// Exponent > 1 rewards longer carves super-linearly: e.g. holding twice the
+// minimum scores 2^EXP times the base. 2.0 ≈ quadratic, 2.5 = more aggressive.
 export const TRICK_POINTS_CARVE                 = 25;
+export const CARVE_SCORE_EXPONENT               = 2.0;
 export const TRICK_POINTS_AIR                   = 100;
 export const TRICK_POINTS_AIR_360               = 300;
 export const TRICK_POINTS_AIR_540               = 600;

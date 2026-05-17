@@ -14,7 +14,8 @@ import {
   NOTIF_PUMP_MS, NOTIF_CARVE_MS,
   NOTIF_SCALE_PUMP, NOTIF_SCALE_CARVE,
   CARVE_LEAN_THRESHOLD, CARVE_MIN_FWD_SPEED, CARVE_MIN_HOLD_S,
-  TRICK_POINTS_PUMP, TRICK_POINTS_CARVE,
+  TRICK_POINTS_PUMP, TRICK_POINTS_CARVE, CARVE_SCORE_EXPONENT,
+  BALANCE_WOBBLE_FREQ_HZ, BALANCE_WOBBLE_ROLL_MAX, BALANCE_DRAG_MAX,
 } from './constants';
 import type { GamePhase, Stance } from './loop';
 
@@ -53,6 +54,18 @@ export interface SurferState {
   airRotationAccum: number;
   /** s.angle sampled at the previous airborne frame, used to compute dAngle. */
   prevAirAngle: number;
+  /**
+   * Balance, 0..1. Full = 1, wipeout at 0. Drains while the surfer is in
+   * whitewater foam and recovers when clear. Frozen while airborne so airs
+   * landing in foam credit the trick first, then drain on the ground.
+   */
+  balance: number;
+  /**
+   * Low-pass-smoothed foam sink (world units, ≥ 0). Lowers the rig in foamy
+   * regions to keep the surfer from hovering above the chopped foam mesh.
+   * Smoothed so crossing into/out of foam doesn't snap visually.
+   */
+  foamSink: number;
 }
 
 export interface PhysicsInput {
@@ -232,6 +245,7 @@ export function stepSurfer(
     const neutralGap = releasedDir === 0 ? releasedHoldT : 0;
     if (
       s.stance === 'standing' &&
+      s.balance >= 0.5 &&
       newDir !== 0 &&
       s.prevSteerDir !== 0 &&
       newDir !== s.prevSteerDir &&
@@ -306,7 +320,9 @@ export function stepSurfer(
   // hold time on the active side. With hysteresis: a lean past
   // CARVE_LEAN_THRESHOLD enters/keeps a carve; the carve only ends once lean
   // falls below half that threshold OR flips side. On end, CARVE! fires if
-  // held ≥ CARVE_MIN_HOLD_S, with points scaling linearly with hold time.
+  // held ≥ CARVE_MIN_HOLD_S, with points scaling as
+  // TRICK_POINTS_CARVE × (holdTime / CARVE_MIN_HOLD_S)^CARVE_SCORE_EXPONENT
+  // — super-linear so longer carves are rewarded steeply.
   const right = vLatX * (-fwdZ) + vLatZ * fwdX;
   const lean = right / 8;
   const baseGate = s.stance === 'standing' && vDotFwd > CARVE_MIN_FWD_SPEED;
@@ -323,7 +339,7 @@ export function stepSurfer(
     // the prior carve if it cleared the minimum hold.
     if (s.carveHoldDir !== 0 && s.carveHoldT >= CARVE_MIN_HOLD_S) {
       const ratio = s.carveHoldT / CARVE_MIN_HOLD_S;
-      const points = Math.round(TRICK_POINTS_CARVE * ratio);
+      const points = Math.round(TRICK_POINTS_CARVE * Math.pow(ratio, CARVE_SCORE_EXPONENT));
       const scale  = Math.min(2.0, NOTIF_SCALE_CARVE + s.carveHoldT * 0.4);
       onTrick?.('CARVE!', NOTIF_CARVE_MS, points, scale);
     }
@@ -337,7 +353,12 @@ export function stepSurfer(
   const leadDrag = leadDist > LEAD_DRAG_THRESHOLD
     ? (leadDist - LEAD_DRAG_THRESHOLD) * LEAD_DRAG_GAIN
     : 0;
-  const drag = baseDrag + FLAT_WATER_DRAG * (1 - waveCouple) + leadDrag;
+  // Balance drag — ramps with (1 - balance)^2, same curve as the wobble &
+  // lateral push. Loss of balance bleeds speed too, making it harder to power
+  // out of the foam.
+  const balanceInstability = (1 - s.balance) * (1 - s.balance);
+  const balanceDrag = BALANCE_DRAG_MAX * balanceInstability;
+  const drag = baseDrag + FLAT_WATER_DRAG * (1 - waveCouple) + leadDrag + balanceDrag;
   const speed = Math.hypot(s.vx, s.vz);
   if (speed > 0) {
     const decel = Math.min(speed, drag * dt);
@@ -459,9 +480,11 @@ export function updateRigTransform(
   const nX = -gradX / nrmLen, nY = 1 / nrmLen, nZ = -gradZ / nrmLen;
   const waveH = waveHeightAt(s.z, s.waveZ, s.x, s.breakX, params.peakAmp, params.sigmaFront, params.sigmaBack);
 
+  // Foam surface sink — smoothed by the live loop into `s.foamSink` so the
+  // rig Y eases when crossing the foam boundary instead of snapping.
   rig.position.set(
     s.x + nX * lift,
-    waveH + nY * lift,
+    waveH + nY * lift - s.foamSink,
     s.z + nZ * lift,
   );
 
@@ -492,6 +515,24 @@ export function updateRigTransform(
     const bZ = nZ + (uqZ - nZ) * e;
     const bLen = Math.sqrt(bX * bX + bY * bY + bZ * bZ);
     uX = bX / bLen; uY = bY / bLen; uZ = bZ / bLen;
+
+    // Balance wobble — rolls the up axis around the board's long axis (t) as
+    // balance drops. Quadratic ramp so full balance is rock-steady and the
+    // sway only becomes pronounced near zero.
+    const instability = (1 - s.balance) * (1 - s.balance);
+    if (instability > 0) {
+      const phaseT = s.rideTime * BALANCE_WOBBLE_FREQ_HZ * Math.PI * 2;
+      const wobbleAngle = Math.sin(phaseT) * BALANCE_WOBBLE_ROLL_MAX * instability;
+      // r_current = t × u (orthonormal); rotate u around t by wobbleAngle.
+      // Rodrigues simplifies because t·u = 0:  u' = u·cos + (t×u)·sin.
+      const cwX = tY * uZ - tZ * uY;
+      const cwY = tZ * uX - tX * uZ;
+      const cwZ = tX * uY - tY * uX;
+      const cw = Math.cos(wobbleAngle), sw = Math.sin(wobbleAngle);
+      uX = uX * cw + cwX * sw;
+      uY = uY * cw + cwY * sw;
+      uZ = uZ * cw + cwZ * sw;
+    }
   }
 
   const rX = tY * uZ - tZ * uY;

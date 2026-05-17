@@ -134,6 +134,47 @@ const progressFill = (pct: number): React.CSSProperties => ({
   transition: 'width 120ms linear',
 });
 
+const balanceWrap: React.CSSProperties = {
+  position: 'fixed',
+  top: '1.2rem',
+  left: '1.2rem',
+  width: 'min(28vw, 160px)',
+  pointerEvents: 'none',
+  color: '#fff',
+  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+};
+
+const balanceLabel: React.CSSProperties = {
+  fontSize: 'clamp(0.65rem, 1.4vw, 0.8rem)',
+  opacity: 0.85,
+  marginBottom: '0.2rem',
+  letterSpacing: '0.05em',
+  textTransform: 'uppercase',
+};
+
+const balanceTrack: React.CSSProperties = {
+  width: '100%',
+  height: '8px',
+  background: 'rgba(0,0,0,0.35)',
+  border: '1px solid rgba(255,255,255,0.35)',
+  borderRadius: '4px',
+  overflow: 'hidden',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+};
+
+function balanceColor(b: number): string {
+  if (b >= 0.6) return '#5fdc6c';
+  if (b >= 0.3) return '#ffc24a';
+  return '#ff5c5c';
+}
+
+const balanceFill = (b: number): React.CSSProperties => ({
+  width: `${Math.max(0, Math.min(1, b)) * 100}%`,
+  height: '100%',
+  background: balanceColor(b),
+  transition: 'width 80ms linear, background-color 120ms linear',
+});
+
 const topRightButton: React.CSSProperties = {
   padding: '0.5rem 0.9rem',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
@@ -290,7 +331,7 @@ export default function HUD({
   onRetry, onNextLevel, onExit, hasNextLevel,
 }: Props) {
   const {
-    phase, rideTime, speed, progress, stats, trickScore,
+    phase, rideTime, speed, progress, stats, trickScore, balance,
     starsCollected, starsTotal, starsRequired, starsMissed,
   } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
@@ -306,6 +347,12 @@ export default function HUD({
         )}
         {showAdvancedOptions && (
           <>
+            <div style={balanceWrap}>
+              <div style={balanceLabel}>Balance</div>
+              <div style={balanceTrack}>
+                <div style={balanceFill(balance)} />
+              </div>
+            </div>
             <div style={progressWrap}>
               <div style={progressLabel}>
                 <span>{level.name}</span>

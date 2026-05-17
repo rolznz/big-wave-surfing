@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { BaseScene } from './createScene';
-import { WaveOcean, waveHeightAt } from './wave';
+import { WaveOcean, waveHeightAt, foamMaskAt } from './wave';
 import { Character } from './character';
 import { Board } from './board';
 import {
   WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
   WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
-  BREAK_START_X, BREAK_SPEED, WIPEOUT_GRACE, WIPEOUT_HEIGHT,
+  BREAK_START_X, BREAK_SPEED,
+  BALANCE_DRAIN_TIME, BALANCE_RECOVER_TIME,
+  FOAM_DRAIN_FULL, FOAM_DRAIN_THRESHOLD,
+  BALANCE_WOBBLE_FREQ_HZ, BALANCE_PUSH_MAX,
+  FOAM_SURFACE_SINK_MAX, FOAM_SINK_TAU,
   MISSED_BY, SHORE_Z_OFFSET,
   SURFER_START_X, SURFER_START_Z,
   POPUP_MIN_SPEED,
@@ -68,6 +72,8 @@ export interface GameStatus {
   starsRequired: number;
   starsMissed: number;   // uncollected stars the surfer has passed in X
   trickScore: number;    // sum of trick points this run
+  /** Surfer balance, 0..1. Drains in whitewater; wipeout at 0. */
+  balance: number;
   stats: RunStats;
 }
 
@@ -212,6 +218,8 @@ export function createLoop(
     carveHoldT: 0,
     airRotationAccum: 0,
     prevAirAngle: 0,
+    balance: 1,
+    foamSink: 0,
   };
 
   // Trick score accumulator. Wraps `opts.onTrick` so the loop owns the running
@@ -575,7 +583,19 @@ export function createLoop(
     const waveHHere = waveHeightAt(state.z, state.waveZ, state.x, state.breakX,
       peakAmp, sigmaFront, sigmaBack);
     const groundLift = state.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
-    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + groundLift;
+
+    // Foam mask at the surfer — drives both the balance drain below and the
+    // smoothed rig sink. Smoothing prevents a sharp Y snap when crossing the
+    // foam boundary.
+    const foamAtSurfer = state.airborne ? 0 : Math.min(1, foamMaskAt(
+      state.x, state.z, state.waveZ, state.breakX,
+      peakAmp, sigmaFront, sigmaBack,
+    ));
+    const targetSink = foamAtSurfer * FOAM_SURFACE_SINK_MAX;
+    const sinkAlpha = 1 - Math.exp(-dt / FOAM_SINK_TAU);
+    state.foamSink += (targetSink - state.foamSink) * sinkAlpha;
+
+    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + groundLift - state.foamSink;
     if (obstacleSys.check(state.x, surferY, state.z, state.waveZ)) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
@@ -589,12 +609,29 @@ export function createLoop(
       fireTrick(`★ ${starSys.collectedCount}/${starSys.total}`, NOTIF_STAR_MS, 0, NOTIF_SCALE_STAR);
     }
 
-    // 11. Wipeout check (whitewater overtakes surfer) — skipped while airborne.
-    if (!state.airborne && waveHHere > WIPEOUT_HEIGHT && state.breakX > state.x + WIPEOUT_GRACE) {
-      phase = 'wiped_out';
-      updateRigTransform(rig, state, gradX, gradZ, physicsParams);
-      ragdoll.activate(state, gradX, gradZ, physicsParams);
-      return { gradX, gradZ };
+    // 11. Whitewater balance — drain in foam, recover when clear. Frozen
+    //     while airborne so airs that land in foam credit the trick first
+    //     and balance starts draining on the ground. Reuses foamAtSurfer
+    //     computed above for the sink smoothing.
+    if (!state.airborne) {
+      const foam = foamAtSurfer;
+      if (foam > FOAM_DRAIN_THRESHOLD) {
+        const t = Math.min(1, (foam - FOAM_DRAIN_THRESHOLD) / (FOAM_DRAIN_FULL - FOAM_DRAIN_THRESHOLD));
+        state.balance -= (t / BALANCE_DRAIN_TIME) * dt;
+      } else {
+        state.balance = Math.min(1, state.balance + dt / BALANCE_RECOVER_TIME);
+      }
+      if (state.balance < 0) state.balance = 0;
+
+      // Low-balance lateral push — sways the surfer left/right without the
+      // user steering. Amount ramps with (1 - balance)^2 and oscillates at
+      // BALANCE_WOBBLE_FREQ_HZ. Applied to world vx so the surfer drifts
+      // sideways on the wave when they're about to lose it.
+      const instability = (1 - state.balance) * (1 - state.balance);
+      if (instability > 0) {
+        const phaseT = state.rideTime * BALANCE_WOBBLE_FREQ_HZ * Math.PI * 2;
+        state.vx += Math.sin(phaseT) * BALANCE_PUSH_MAX * instability * dt;
+      }
     }
 
     // 12. Deferred air trick — surfer just landed and survived all checks.
@@ -830,6 +867,7 @@ export function createLoop(
       starsRequired,
       starsMissed: starSys.missedCount(state.x),
       trickScore,
+      balance: state.balance,
       stats: { maxSpeed, avgSpeed, turns },
     });
     renderer.render(scene, camera);

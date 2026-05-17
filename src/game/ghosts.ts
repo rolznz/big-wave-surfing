@@ -203,6 +203,8 @@ function makeInitialState(): SurferState {
     carveHoldT: 0,
     airRotationAccum: 0,
     prevAirAngle: 0,
+    balance: 1,
+    foamSink: 0,
   };
 }
 
