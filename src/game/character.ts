@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 /**
  * Procedural human character built from capsule/box primitives.
@@ -17,6 +17,7 @@ export interface CharacterMaterials {
   skin: THREE.MeshPhongMaterial;
   suit: THREE.MeshPhongMaterial;
   hair: THREE.MeshPhongMaterial;
+  eye: THREE.MeshPhongMaterial;
 }
 
 export function defaultMaterials(): CharacterMaterials {
@@ -24,17 +25,19 @@ export function defaultMaterials(): CharacterMaterials {
     skin: new THREE.MeshPhongMaterial({ color: 0xe6bfa1 }),
     suit: new THREE.MeshPhongMaterial({ color: 0x1a1a26 }),
     hair: new THREE.MeshPhongMaterial({ color: 0x2a1a10 }),
+    eye: new THREE.MeshPhongMaterial({ color: 0x101018 }),
   };
 }
 
 export type PoseName =
-  | 'standing_neutral'
-  | 'standing_carve_l'
-  | 'standing_carve_r'
-  | 'prone_neutral'
-  | 'prone_paddle_l'
-  | 'prone_paddle_r'
-  | 'wipeout_limp';
+  | "standing_neutral"
+  | "standing_carve_l"
+  | "standing_carve_r"
+  | "prone_neutral"
+  | "prone_paddle_l"
+  | "prone_paddle_r"
+  | "wipeout_limp"
+  | "menu_holding_board";
 
 type Euler3 = [number, number, number];
 
@@ -71,16 +74,16 @@ const POSES: { [K in PoseName]: Pose } = {
     rootRot: [0, -Math.PI / 2, 0],
     rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [-0.15, 0, -0.05],    // slight lean into direction of travel
-      head:   [0, 1.2, -0.05],      // turned to look toward nose (rig +X)
-      shoulderL: [1.2, 0, 0],       // front arm extended out over the nose
-      shoulderR: [-1.2, 0, 0],      // back arm extended out over the tail
+      torso: [-0.15, 0, -0.05], // slight lean into direction of travel
+      head: [0, 1.2, -0.05], // turned to look toward nose (rig +X)
+      shoulderL: [1.2, 0, 0], // front arm extended out over the nose
+      shoulderR: [-1.2, 0, 0], // back arm extended out over the tail
       elbowL: [0, 0, -0.3],
       elbowR: [0, 0, -0.3],
-      hipL: [0.3, 0, -0.1],         // splayed, wide crouched stance
-      hipR: [-0.3, 0, -0.1],
-      kneeL: [0, 0, 0.9],           // deep athletic knee bend
-      kneeR: [0, 0, 0.9],
+      hipL: [0.9, 0, 0.9], // splayed, wide crouched stance
+      hipR: [-0.9, 0, 0.9],
+      kneeL: [0, 0.5, -1.8], // deep athletic knee bend
+      kneeR: [0, -0.5, -1.8],
     },
   },
   // Carve poses add a lean about the board's long axis. After the root Y yaw,
@@ -90,14 +93,14 @@ const POSES: { [K in PoseName]: Pose } = {
     rootRot: [0, -Math.PI / 2, 0.35],
     rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [-0.2, 0, -0.08],
-      head:   [0.1, 1.2, -0.05],
-      shoulderL: [1.35, 0, 0.15],   // lead arm reaches up/forward into turn
+      torso: [-0.2, 0, -0.08],
+      head: [0.1, 1.2, -0.05],
+      shoulderL: [1.35, 0, 0.15], // lead arm reaches up/forward into turn
       shoulderR: [-1.0, 0, 0.1],
       elbowL: [0, 0, -0.5],
       elbowR: [0, 0, -0.2],
       hipL: [0.4, 0, -0.15],
-      hipR: [-0.2, 0, -0.05],       // asymmetric compression — front knee drives
+      hipR: [-0.2, 0, -0.05], // asymmetric compression — front knee drives
       kneeL: [0, 0, 1.0],
       kneeR: [0, 0, 0.8],
     },
@@ -106,10 +109,10 @@ const POSES: { [K in PoseName]: Pose } = {
     rootRot: [0, -Math.PI / 2, -0.35],
     rootPos: [-0.1, 0.85, 0],
     joints: {
-      torso:  [-0.1, 0, -0.08],
-      head:   [-0.1, 1.2, -0.05],
+      torso: [-0.1, 0, -0.08],
+      head: [-0.1, 1.2, -0.05],
       shoulderL: [1.0, 0, 0.1],
-      shoulderR: [-1.35, 0, 0.15],  // trailing arm sweeps out as body opens
+      shoulderR: [-1.35, 0, 0.15], // trailing arm sweeps out as body opens
       elbowL: [0, 0, -0.2],
       elbowR: [0, 0, -0.5],
       hipL: [0.2, 0, -0.05],
@@ -129,15 +132,15 @@ const POSES: { [K in PoseName]: Pose } = {
     rootPos: [0, 0.18, 0],
     joints: {
       pelvis: [0, 0, 0],
-      torso:  [0, 0, 0.55],        // chest pitched up ~30° off the deck
-      head:   [0, 0, -0.15],       // small additional head lift on top of the torso pitch
-      shoulderL: [0, 0, 0.95],     // upper arm nearly vertical (elbow under shoulder)
+      torso: [0, 0, 0.55], // chest pitched up ~30° off the deck
+      head: [0, 0, -0.15], // small additional head lift on top of the torso pitch
+      shoulderL: [0, 0, 0.95], // upper arm nearly vertical (elbow under shoulder)
       shoulderR: [0, 0, 0.95],
       elbowL: [0, 0, Math.PI / 2], // 90° elbow bend → forearms forward on deck
       elbowR: [0, 0, Math.PI / 2],
       hipL: [0, 0, 0.05],
       hipR: [0, 0, -0.05],
-      kneeL: [-0.15, 0, 0],        // legs slightly up behind
+      kneeL: [-0.15, 0, 0], // legs slightly up behind
       kneeR: [-0.15, 0, 0],
     },
   },
@@ -166,13 +169,37 @@ const POSES: { [K in PoseName]: Pose } = {
       kneeR: [-0.15, 0, 0],
     },
   },
+  // Menu preview: character stands front-on (facing rig +X), board upright to
+  // their right with the right hand resting on the upper rail. Root yaw is 0
+  // so the camera (placed in front) sees the surfer face-on.
+  menu_holding_board: {
+    rootRot: [0, 0, 0],
+    rootPos: [0, 0.88, 0],
+    joints: {
+      pelvis: [0, 0, 0],
+      torso: [0, 0.05, 0], // small turn toward the board on the right
+      head: [0, 0.15, 0], // glance toward the board
+      // Left arm hangs naturally beside the body.
+      shoulderL: [0, 0, 0.05],
+      elbowL: [0, 0, 0.18],
+      // Right arm extended out to +Z (rig right) to grip the board's near rail.
+      // shoulder.rotation.x = -π/2 swings the upper arm from -Y to +Z.
+      shoulderR: [-Math.PI / 2 + 0.05, 0, 0.05],
+      elbowR: [0, -0.25, 0.05],
+      // Subtle athletic stance: hips slightly open, knees barely bent.
+      hipL: [0, 0, 0.04],
+      hipR: [0, 0, 0.04],
+      kneeL: [0, 0, 0.08],
+      kneeR: [0, 0, 0.08],
+    },
+  },
   wipeout_limp: {
     rootRot: [0.6, 0.4, -0.8],
     rootPos: [0, 0.3, 0],
     joints: {
       pelvis: [0.2, 0, 0],
-      torso:  [0.3, 0.2, -0.1],
-      head:   [-0.5, 0.3, 0.2],
+      torso: [0.3, 0.2, -0.1],
+      head: [-0.5, 0.3, 0.2],
       shoulderL: [0.5, 0.8, -2.2],
       shoulderR: [-0.5, -0.8, 2.0],
       elbowL: [0.6, 1.1, 0],
@@ -219,7 +246,13 @@ function buildSkeleton(mats: CharacterMaterials): {
     meshes.push(m);
     return m;
   }
-  function box(w: number, h: number, d: number, mat: THREE.Material, yOffset = 0) {
+  function box(
+    w: number,
+    h: number,
+    d: number,
+    mat: THREE.Material,
+    yOffset = 0,
+  ) {
     const g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.Mesh(g, mat);
     m.position.y = yOffset;
@@ -230,32 +263,60 @@ function buildSkeleton(mats: CharacterMaterials): {
 
   const root = new THREE.Group();
 
-  // Pelvis — anchor of the skeleton
+  // Pelvis — anchor of the skeleton. Width is along Z (lateral, hip-to-hip)
+  // and depth along X (front-to-back). Enlarged in Y and offset upward to
+  // bridge the visible gap to the torso bottom: with h=0.35 and yOffset=+0.085
+  // the box spans y ∈ [−0.09, +0.26], visually merging with the torso (both
+  // share the suit material).
   const pelvis = new THREE.Group();
-  pelvis.add(box(0.28, 0.18, 0.22, mats.suit));
+  pelvis.add(box(0.22, 0.35, 0.28, mats.suit, 0.085));
   root.add(pelvis);
 
-  // Torso — sits above pelvis
+  // Torso — sits above pelvis. Wider across the shoulders (Z) than deep
+  // (X) — a human body is broader side-to-side than front-to-back.
   const torso = new THREE.Group();
   torso.position.set(0, 0.18, 0);
-  torso.add(box(0.38, 0.45, 0.25, mats.suit, 0.22));
+  torso.add(box(0.25, 0.45, 0.38, mats.suit, 0.22));
   pelvis.add(torso);
 
-  // Head — above torso
+  // Head — above torso. Pivot raised from 0.5 to 0.6 so the head box bottom
+  // (head-local y=−0.11) sits above the torso top (torso-local y=0.445) with
+  // a visible neck gap of ~0.045.
   const head = new THREE.Group();
-  head.position.set(0, 0.5, 0);
+  head.position.set(0, 0.6, 0);
   head.add(box(0.2, 0.22, 0.2, mats.skin));
-  head.add(box(0.22, 0.12, 0.22, mats.hair, 0.08));   // hair cap
+  // Hair top cap — thin and lifted so it sits above the eyeline instead of
+  // covering the face. Spans head-local y ∈ [+0.06, +0.14].
+  head.add(box(0.22, 0.08, 0.22, mats.hair, 0.1));
+  // Back hair — a slab flush against the back face (-X) of the head that
+  // drops lower than the front, so from behind the head is more covered.
+  // Spans head-local y ∈ [−0.08, +0.10], x ∈ [−0.13, −0.08].
+  const backHair = box(0.05, 0.18, 0.22, mats.hair);
+  backHair.position.set(-0.105, 0.01, 0);
+  head.add(backHair);
+  // Eyes — thin slabs flush against the +X (forward) face of the head box.
+  // Head box width is 0.2 so face is at head-local x=+0.10; eye slabs sit at
+  // x=+0.101 (just outside) so they read as flat marks visible head-on and
+  // disappear from the rear. Placed below the lifted hair cap.
+  const eyeL = box(0.005, 0.025, 0.03, mats.eye);
+  eyeL.position.set(0.101, 0.02, -0.045);
+  head.add(eyeL);
+  const eyeR = box(0.005, 0.025, 0.03, mats.eye);
+  eyeR.position.set(0.101, 0.02, 0.045);
+  head.add(eyeR);
   torso.add(head);
 
   // Shoulders → upper arms → elbows → forearms
-  function buildArm(side: 1 | -1): { shoulder: THREE.Group; elbow: THREE.Group } {
+  function buildArm(side: 1 | -1): {
+    shoulder: THREE.Group;
+    elbow: THREE.Group;
+  } {
     const shoulder = new THREE.Group();
     shoulder.position.set(0, 0.38, 0.22 * side);
-    shoulder.add(capsule(0.06, 0.22, mats.skin));     // upper arm
+    shoulder.add(capsule(0.06, 0.22, mats.skin)); // upper arm
     const elbow = new THREE.Group();
     elbow.position.set(0, -0.34, 0);
-    elbow.add(capsule(0.055, 0.22, mats.skin));       // forearm
+    elbow.add(capsule(0.055, 0.22, mats.skin)); // forearm
     shoulder.add(elbow);
     torso.add(shoulder);
     return { shoulder, elbow };
@@ -263,7 +324,7 @@ function buildSkeleton(mats: CharacterMaterials): {
   const armL = buildArm(-1);
   const armR = buildArm(1);
 
-  // Hips → upper legs → knees → lower legs
+  // Hips → upper legs → knees → lower legs → feet
   function buildLeg(side: 1 | -1): { hip: THREE.Group; knee: THREE.Group } {
     const hip = new THREE.Group();
     hip.position.set(0, -0.1, 0.1 * side);
@@ -271,6 +332,13 @@ function buildSkeleton(mats: CharacterMaterials): {
     const knee = new THREE.Group();
     knee.position.set(0, -0.46, 0);
     knee.add(capsule(0.07, 0.3, mats.skin));
+    // Foot — small forward-projecting slab parented to the knee. Heel sits
+    // flush with the lower-leg capsule end (knee-local y=−0.44); toe extends
+    // forward (+X). Purely visual: ragdoll seeds the foot particle at the
+    // capsule end (knee-local y=−0.44), unaffected by this mesh.
+    const foot = box(0.22, 0.06, 0.13, mats.skin);
+    foot.position.set(0.09, -0.47, 0);
+    knee.add(foot);
     hip.add(knee);
     pelvis.add(hip);
     return { hip, knee };
@@ -281,11 +349,17 @@ function buildSkeleton(mats: CharacterMaterials): {
   return {
     root,
     joints: {
-      pelvis, torso, head,
-      shoulderL: armL.shoulder,  elbowL: armL.elbow,
-      shoulderR: armR.shoulder,  elbowR: armR.elbow,
-      hipL: legL.hip,            kneeL: legL.knee,
-      hipR: legR.hip,            kneeR: legR.knee,
+      pelvis,
+      torso,
+      head,
+      shoulderL: armL.shoulder,
+      elbowL: armL.elbow,
+      shoulderR: armR.shoulder,
+      elbowR: armR.elbow,
+      hipL: legL.hip,
+      kneeL: legL.knee,
+      hipR: legR.hip,
+      kneeR: legR.knee,
     },
     meshes,
   };
@@ -300,10 +374,10 @@ export class Character {
   private readonly meshes: THREE.Mesh[];
 
   /** Currently-applied pose targets (updated by blendTo each frame). */
-  private currentPose: PoseName = 'standing_neutral';
-  private blendT = 1;             // 0..1 progress from sourcePose to targetPose
-  private sourcePose: PoseName = 'standing_neutral';
-  private targetPose: PoseName = 'standing_neutral';
+  private currentPose: PoseName = "standing_neutral";
+  private blendT = 1; // 0..1 progress from sourcePose to targetPose
+  private sourcePose: PoseName = "standing_neutral";
+  private targetPose: PoseName = "standing_neutral";
 
   constructor(materials?: CharacterMaterials) {
     this.materials = materials ?? defaultMaterials();
@@ -311,7 +385,7 @@ export class Character {
     this.root = sk.root;
     this.joints = sk.joints;
     this.meshes = sk.meshes;
-    this.setPose('prone_neutral');
+    this.setPose("prone_neutral");
   }
 
   /** Snap to a pose immediately. */
@@ -379,10 +453,10 @@ export class Character {
     // driving the joints is seamless — no snap.
     const restShoulderL = this.joints.shoulderL.rotation.z;
     const restShoulderR = this.joints.shoulderR.rotation.z;
-    const restElbowL    = this.joints.elbowL.rotation.z;
-    const restElbowR    = this.joints.elbowR.rotation.z;
-    const restTorsoY    = this.joints.torso.rotation.y;
-    const restHeadY     = this.joints.head.rotation.y;
+    const restElbowL = this.joints.elbowL.rotation.z;
+    const restElbowR = this.joints.elbowR.rotation.z;
+    const restTorsoY = this.joints.torso.rotation.y;
+    const restHeadY = this.joints.head.rotation.y;
 
     // Shoulder windmill: θ=π is reach; decreasing θ drives arm down → back →
     // up → forward. Wind-down lerps each arm toward the rest target along the
@@ -397,12 +471,21 @@ export class Character {
     const active = 1 - restBlend;
     const strokeBendL = Math.max(0, Math.sin(phaseL)) * 0.6;
     const strokeBendR = Math.max(0, Math.sin(phaseR)) * 0.6;
-    this.joints.elbowL.rotation.set(0, 0, strokeBendL * active + restElbowL * restBlend);
-    this.joints.elbowR.rotation.set(0, 0, strokeBendR * active + restElbowR * restBlend);
+    this.joints.elbowL.rotation.set(
+      0,
+      0,
+      strokeBendL * active + restElbowL * restBlend,
+    );
+    this.joints.elbowR.rotation.set(
+      0,
+      0,
+      strokeBendR * active + restElbowR * restBlend,
+    );
 
     const strokeRoll = Math.cos(phase) * 0.3;
     this.joints.torso.rotation.y = strokeRoll * active + restTorsoY * restBlend;
-    this.joints.head.rotation.y = -strokeRoll * 0.4 * active + restHeadY * restBlend;
+    this.joints.head.rotation.y =
+      -strokeRoll * 0.4 * active + restHeadY * restBlend;
   }
 
   private applyBlend(): void {
@@ -434,6 +517,7 @@ export class Character {
     this.materials.skin.dispose();
     this.materials.suit.dispose();
     this.materials.hair.dispose();
+    this.materials.eye.dispose();
   }
 }
 

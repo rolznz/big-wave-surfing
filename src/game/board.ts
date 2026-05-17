@@ -52,8 +52,14 @@ export class Board {
     // with its depth along Z — which is already how ExtrudeGeometry builds it.
     const finMesh = new THREE.Mesh(fin, this.material);
     finMesh.castShadow = true;
-    finMesh.position.set(-0.75, -0.06, 0);   // near the tail, hanging below deck
-    finMesh.rotation.y = Math.PI / 2;        // align fin plane across board width
+    // Fin shape is authored upside-down (wide edge at Y=0, narrow at Y=−0.18).
+    // Rotate π around X so the wide base sits at the top (attached under the
+    // deck) and the narrow tip points away from the board. The Y position
+    // shift compensates so the fin still hangs in roughly the same world
+    // region. As a side effect, the natural backward rake of a real surfboard
+    // fin emerges (tip swept toward the tail).
+    finMesh.rotation.x = Math.PI;
+    finMesh.position.set(-0.75, -0.24, 0);
     this.root.add(finMesh);
     this.finGeo = fin;
   }

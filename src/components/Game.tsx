@@ -3,6 +3,7 @@ import { createScene } from "../game/createScene";
 import { createLoop, GameStatus, TouchIndicatorState } from "../game/loop";
 import { LevelConfig, LEVELS, levelGoalX } from "../game/levels";
 import { NOTIF_PADDLE_MS, NOTIF_SCALE_PADDLE } from "../game/constants";
+import { Cosmetics } from "../game/cosmetics";
 import HUD, { type NotificationState } from "./HUD";
 import TouchIndicator from "./TouchIndicator";
 
@@ -13,6 +14,7 @@ interface Props {
   showAdvancedOptions: boolean;
   autoStand: boolean;
   showMenuButton: boolean;
+  cosmetics: Cosmetics;
 }
 
 function initialStatus(level: LevelConfig): GameStatus {
@@ -37,10 +39,13 @@ export default function Game({
   showAdvancedOptions,
   autoStand,
   showMenuButton,
+  cosmetics,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const toggleWireframeRef = useRef<() => boolean>(() => false);
   const autoStandRef = useRef<boolean>(autoStand);
+  const cosmeticsRef = useRef<Cosmetics>(cosmetics);
+  cosmeticsRef.current = cosmetics;
 
   const [runKey, setRunKey] = useState(0);
   const [status, setStatus] = useState<GameStatus>(() => initialStatus(level));
@@ -95,6 +100,7 @@ export default function Game({
       autoStand: autoStandRef,
       onTouchIndicator: setTouchIndicator,
       onTrick: showTrick,
+      cosmetics: cosmeticsRef.current,
     });
     toggleWireframeRef.current = loop.toggleWireframe;
 

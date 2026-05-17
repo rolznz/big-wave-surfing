@@ -24,6 +24,7 @@ function ghostCharacterMaterials(): CharacterMaterials {
     skin: new THREE.MeshPhongMaterial({ color: 0xe6bfa1, ...common }),
     suit: new THREE.MeshPhongMaterial({ color: 0x1a1a26, ...common }),
     hair: new THREE.MeshPhongMaterial({ color: 0x2a1a10, ...common }),
+    eye:  new THREE.MeshPhongMaterial({ color: 0x101018, ...common }),
   };
 }
 

@@ -81,7 +81,7 @@ export const WAVE_STRIP_EDGE_TAPER = 20;
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
 export const SURFER_START_X = -170;
 export const SURFER_START_Z = -30;
-export const SURFER_X_LIMIT = 1000;
+export const SURFER_X_LIMIT = 300;
 
 // ─── Stance physics profiles ─────────────────────────────────────────────────
 // Prone (lying on board, paddling): slow to turn, can paddle, body creates drag,

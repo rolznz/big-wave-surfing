@@ -1,6 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LEVELS, LevelConfig } from '../game/levels';
 import { isTouchPrimary } from '../util/isTouchPrimary';
+import {
+  BOARDS,
+  CHARACTERS,
+  Cosmetics,
+  StanceVariant,
+} from '../game/cosmetics';
+import CharacterPreview from './CharacterPreview';
 
 interface Props {
   onPlay: (level: LevelConfig) => void;
@@ -12,6 +19,8 @@ interface Props {
   onChangeShowHotkeys: (v: boolean) => void;
   showMenuButton: boolean;
   onChangeShowMenuButton: (v: boolean) => void;
+  cosmetics: Cosmetics;
+  onChangeCosmetics: (next: Cosmetics) => void;
 }
 
 const wrap: React.CSSProperties = {
@@ -19,8 +28,7 @@ const wrap: React.CSSProperties = {
   inset: 0,
   display: 'flex',
   flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'flex-start',
+  alignItems: 'stretch',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
   color: '#fff',
   background: 'linear-gradient(180deg, #053047 0%, #0a5f86 55%, #0e85a8 100%)',
@@ -41,15 +49,14 @@ const subtitle: React.CSSProperties = {
   fontSize: 'clamp(0.9rem, 2vw, 1.1rem)',
   opacity: 0.85,
   textShadow: '0 2px 6px rgba(0,0,0,0.5)',
-  marginTop: '-1rem',
+  marginTop: '-0.5rem',
 };
 
 const grid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 20rem))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))',
   gap: '1rem',
-  width: 'min(100%, 1100px)',
-  justifyContent: 'center',
+  width: '100%',
 };
 
 const card: React.CSSProperties = {
@@ -90,7 +97,6 @@ const topRightBar: React.CSSProperties = {
   alignItems: 'center',
   gap: '0.5rem',
   flexWrap: 'wrap',
-  justifyContent: 'center',
 };
 
 const topRightButton: React.CSSProperties = {
@@ -203,9 +209,123 @@ const colHighlight: React.CSSProperties = {
   background: 'rgba(255,255,255,0.08)',
 };
 
+const previewPanel: React.CSSProperties = {
+  position: 'relative',
+  width: '100%',
+  minHeight: 'min(70vh, 600px)',
+  background:
+    'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+  border: '1px solid rgba(255,255,255,0.15)',
+  borderRadius: '0.8rem',
+  overflow: 'hidden',
+};
+
+const previewPanelNarrow: React.CSSProperties = {
+  ...previewPanel,
+  height: 'clamp(180px, 30vh, 260px)',
+  minHeight: 0,
+};
+
+const customizeRow: React.CSSProperties = {
+  marginTop: '1rem',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.5rem',
+  justifyContent: 'flex-start',
+};
+
+const customizePanel: React.CSSProperties = {
+  marginTop: '0.8rem',
+  padding: '1rem 1.1rem',
+  background: 'rgba(0,0,0,0.4)',
+  border: '1px solid rgba(255,255,255,0.2)',
+  borderRadius: '0.6rem',
+  backdropFilter: 'blur(4px)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1rem',
+};
+
+const customizeLabel: React.CSSProperties = {
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  opacity: 0.75,
+  marginBottom: '0.4rem',
+};
+
+const tileStrip: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.5rem',
+};
+
+const tileBase: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '0.3rem',
+  padding: '0.5rem 0.6rem',
+  background: 'rgba(255,255,255,0.05)',
+  border: '2px solid transparent',
+  borderRadius: '0.4rem',
+  cursor: 'pointer',
+  color: '#fff',
+  fontFamily: 'inherit',
+  fontSize: '0.75rem',
+  minWidth: '4.5rem',
+};
+
+const tileSelected: React.CSSProperties = {
+  borderColor: '#7fd8f5',
+  background: 'rgba(127,216,245,0.12)',
+};
+
+const segmentWrap: React.CSSProperties = {
+  display: 'inline-flex',
+  borderRadius: '0.4rem',
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,0.3)',
+};
+
+const segmentButton: React.CSSProperties = {
+  padding: '0.5rem 1rem',
+  background: 'transparent',
+  color: '#fff',
+  border: 'none',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: '0.9rem',
+};
+
+const segmentButtonSelected: React.CSSProperties = {
+  ...segmentButton,
+  background: 'rgba(127,216,245,0.25)',
+};
+
 function difficultyStars(l: LevelConfig): string {
   const filled = Math.max(0, Math.min(5, l.difficulty));
   return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+}
+
+function useIsNarrow(maxWidthPx = 800): boolean {
+  const [narrow, setNarrow] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia(`(max-width: ${maxWidthPx}px)`).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${maxWidthPx}px)`);
+    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [maxWidthPx]);
+  return narrow;
+}
+
+function colorHex(c: number): string {
+  return `#${c.toString(16).padStart(6, '0')}`;
 }
 
 export default function MenuScreen({
@@ -218,12 +338,163 @@ export default function MenuScreen({
   onChangeShowHotkeys,
   showMenuButton,
   onChangeShowMenuButton,
+  cosmetics,
+  onChangeCosmetics,
 }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const narrow = useIsNarrow(800);
 
-  return (
-    <div style={wrap}>
+  const setCharacter = (id: string) =>
+    onChangeCosmetics({ ...cosmetics, characterId: id });
+  const setBoard = (id: string) =>
+    onChangeCosmetics({ ...cosmetics, boardId: id });
+  const setStance = (stance: StanceVariant) =>
+    onChangeCosmetics({ ...cosmetics, stance });
+
+  const customizeBlock = (
+    <>
+      <div style={customizeRow}>
+        <button
+          type="button"
+          style={topRightButton}
+          onClick={() => setCustomizeOpen((v) => !v)}
+          aria-expanded={customizeOpen}
+        >
+          🎨 {customizeOpen ? 'Hide' : 'Customize'}
+        </button>
+      </div>
+      {customizeOpen && (
+        <div style={customizePanel}>
+          <div>
+            <div style={customizeLabel}>Character</div>
+            <div style={tileStrip}>
+              {CHARACTERS.map((c) => {
+                const selected = c.id === cosmetics.characterId;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCharacter(c.id)}
+                    style={{
+                      ...tileBase,
+                      ...(selected ? tileSelected : undefined),
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '0.2rem' }}>
+                      <span
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: '50%',
+                          background: colorHex(c.skin),
+                          border: '1px solid rgba(0,0,0,0.4)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: '50%',
+                          background: colorHex(c.suit),
+                          border: '1px solid rgba(0,0,0,0.4)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: '50%',
+                          background: colorHex(c.hair),
+                          border: '1px solid rgba(0,0,0,0.4)',
+                        }}
+                      />
+                    </div>
+                    <span>{c.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div style={customizeLabel}>Board</div>
+            <div style={tileStrip}>
+              {BOARDS.map((b) => {
+                const selected = b.id === cosmetics.boardId;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setBoard(b.id)}
+                    style={{
+                      ...tileBase,
+                      ...(selected ? tileSelected : undefined),
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 36,
+                        height: 14,
+                        borderRadius: '7px',
+                        background: colorHex(b.color),
+                        border: '1px solid rgba(0,0,0,0.4)',
+                      }}
+                    />
+                    <span>{b.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div style={customizeLabel}>Stance</div>
+            <div style={segmentWrap}>
+              <button
+                type="button"
+                onClick={() => setStance('regular')}
+                style={
+                  cosmetics.stance === 'regular'
+                    ? segmentButtonSelected
+                    : segmentButton
+                }
+              >
+                Regular
+              </button>
+              <button
+                type="button"
+                onClick={() => setStance('goofy')}
+                style={
+                  cosmetics.stance === 'goofy'
+                    ? segmentButtonSelected
+                    : segmentButton
+                }
+              >
+                Goofy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const previewBlock = (
+    <div style={narrow ? previewPanelNarrow : previewPanel}>
+      <CharacterPreview cosmetics={cosmetics} />
+    </div>
+  );
+
+  const leftColumn = (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'clamp(0.8rem, 2vw, 1.4rem)',
+        minWidth: 0,
+        flex: '1 1 0',
+      }}
+    >
       <h1 style={title}>Big Wave Surfing</h1>
       <div style={subtitle}>Pick a wave.</div>
       <div style={topRightBar}>
@@ -270,21 +541,65 @@ export default function MenuScreen({
             style={card}
             onClick={() => onPlay(level)}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.55)';
+              (e.currentTarget as HTMLButtonElement).style.transform =
+                'translateY(-2px)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor =
+                'rgba(255,255,255,0.55)';
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.transform = '';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.25)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor =
+                'rgba(255,255,255,0.25)';
             }}
           >
             <div style={cardName}>{level.name}</div>
             <div style={cardDesc}>{level.description}</div>
-            <div style={cardMeta}>
-              Difficulty {difficultyStars(level)}
-            </div>
+            <div style={cardMeta}>Difficulty {difficultyStars(level)}</div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+
+  const rightColumn = (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: narrow ? '1 1 0' : '0 0 38%',
+        maxWidth: narrow ? undefined : '480px',
+        minWidth: narrow ? 0 : 300,
+      }}
+    >
+      {previewBlock}
+      {customizeBlock}
+    </div>
+  );
+
+  return (
+    <div style={wrap}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: narrow ? 'column' : 'row',
+          gap: 'clamp(1rem, 2.5vw, 2rem)',
+          alignItems: 'stretch',
+          width: '100%',
+          maxWidth: '1400px',
+          margin: '0 auto',
+        }}
+      >
+        {narrow ? (
+          <>
+            {rightColumn}
+            {leftColumn}
+          </>
+        ) : (
+          <>
+            {leftColumn}
+            {rightColumn}
+          </>
+        )}
       </div>
 
       {helpOpen && (
@@ -301,10 +616,20 @@ export default function MenuScreen({
               <thead>
                 <tr>
                   <th style={controlsTh}>Action</th>
-                  <th style={{ ...controlsTh, ...(isTouchPrimary ? colDim : colHighlight) }}>
+                  <th
+                    style={{
+                      ...controlsTh,
+                      ...(isTouchPrimary ? colDim : colHighlight),
+                    }}
+                  >
                     Keyboard
                   </th>
-                  <th style={{ ...controlsTh, ...(isTouchPrimary ? colHighlight : colDim) }}>
+                  <th
+                    style={{
+                      ...controlsTh,
+                      ...(isTouchPrimary ? colHighlight : colDim),
+                    }}
+                  >
                     Touch
                   </th>
                 </tr>
@@ -319,10 +644,20 @@ export default function MenuScreen({
                 ].map(([action, kb, touch]) => (
                   <tr key={action}>
                     <td style={controlsTd}>{action}</td>
-                    <td style={{ ...controlsTd, ...(isTouchPrimary ? colDim : colHighlight) }}>
+                    <td
+                      style={{
+                        ...controlsTd,
+                        ...(isTouchPrimary ? colDim : colHighlight),
+                      }}
+                    >
                       {kb}
                     </td>
-                    <td style={{ ...controlsTd, ...(isTouchPrimary ? colHighlight : colDim) }}>
+                    <td
+                      style={{
+                        ...controlsTd,
+                        ...(isTouchPrimary ? colHighlight : colDim),
+                      }}
+                    >
                       {touch}
                     </td>
                   </tr>

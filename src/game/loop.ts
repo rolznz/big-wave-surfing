@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { BaseScene } from './createScene';
 import { WaveOcean, waveHeightAt, foamMaskAt } from './wave';
-import { Character } from './character';
-import { Board } from './board';
+import { Cosmetics } from './cosmetics';
+import { buildCharacter, buildBoard } from './cosmetics';
 import {
   WAVE_AMP, WAVE_SPEED, WAVE_START_Z,
   WAVE_SIGMA_FRONT, WAVE_SIGMA_BACK,
@@ -86,6 +86,8 @@ export interface LoopOptions {
    * size multiplier (1.0 = base): small for PUMP, larger for big airs.
    */
   onTrick?: (text: string, durationMs: number, points: number, scale: number) => void;
+  /** Cosmetic selections (character, board, stance). Read once at startup. */
+  cosmetics: Cosmetics;
 }
 
 /**
@@ -167,11 +169,31 @@ export function createLoop(
   rig.renderOrder = 2;
   scene.add(rig);
 
-  const board = new Board(0xf2efe6);
+  const board = buildBoard(opts.cosmetics.boardId);
   rig.add(board.root);
 
-  const character = new Character();
-  rig.add(character.root);
+  const character = buildCharacter(opts.cosmetics.characterId);
+  // Stance group: when surfing standing in goofy stance, flip rig X to swap
+  // which foot is toward the nose. The character root yaws -π/2 about Y so
+  // its lateral +Z maps to rig -X (tail); flipping rig X therefore swaps the
+  // foot that's toward the nose — the regular ↔ goofy mirror.
+  //
+  // Critically, the prone pose puts the character's head at rig +X (nose) via
+  // a Z-axis root rotation — mirroring that would put the head at the tail.
+  // Real-world regular/goofy only differs in foot position when standing, so
+  // we set scale.x dynamically per frame from state.stance below.
+  const stanceGroup = new THREE.Group();
+  stanceGroup.add(character.root);
+  rig.add(stanceGroup);
+  const goofy = opts.cosmetics.stance === 'goofy';
+
+  // Negative scale flips face winding; render both sides on the character so
+  // meshes don't disappear when the mirror is engaged.
+  if (goofy) {
+    character.materials.skin.side = THREE.DoubleSide;
+    character.materials.suit.side = THREE.DoubleSide;
+    character.materials.hair.side = THREE.DoubleSide;
+  }
 
   const ragdoll = new Ragdoll(scene, character, board);
 
@@ -788,6 +810,23 @@ export function createLoop(
 
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
       updateCharacterPose(character, state, physInputForPose, dt, phase);
+      // Mirror only while standing — prone has head at +X (nose) and would
+      // be reversed by the flip. Toggle is discrete with the pop-up.
+      //
+      // The compensating position.x = 2 * root.position.x reflects the body
+      // around the root's X (position along the board) instead of around
+      // world X = 0 — so goofy swaps which foot is toward the nose while
+      // keeping the surfer's stance at the same spot along the board.
+      // Without this, the standing pose's rootPos.x = -0.1 (slightly behind
+      // board center) becomes +0.1 under the mirror, shifting the goofy
+      // surfer forward of where a regular surfer stands.
+      if (goofy && state.stance === 'standing') {
+        stanceGroup.scale.x = -1;
+        stanceGroup.position.x = 2 * character.root.position.x;
+      } else {
+        stanceGroup.scale.x = 1;
+        stanceGroup.position.x = 0;
+      }
       wave.update(dt, state.breakX, state.z, state.x);
       emitTrailSlice(now);
     } else {

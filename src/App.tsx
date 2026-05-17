@@ -2,12 +2,20 @@ import { useCallback, useEffect, useState } from 'react';
 import Game from './components/Game';
 import MenuScreen from './components/MenuScreen';
 import { LEVELS, type LevelConfig } from './game/levels';
+import {
+  BOARDS,
+  CHARACTERS,
+  Cosmetics,
+  DEFAULT_COSMETICS,
+  StanceVariant,
+} from './game/cosmetics';
 
 const ADVANCED_OPTIONS_KEY = 'bws.showAdvancedOptions';
 const AUTO_STAND_KEY = 'bws.autoStand';
 const SHOW_HOTKEYS_KEY = 'bws.showHotkeys';
 const SHOW_MENU_BUTTON_KEY = 'bws.showMenuButton';
 const CURRENT_LEVEL_KEY = 'bws.currentLevelId';
+const COSMETICS_KEY = 'bws.cosmetics';
 
 function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -23,6 +31,33 @@ function readBool(key: string, fallback: boolean): boolean {
 function writeBool(key: string, value: boolean): void {
   try {
     localStorage.setItem(key, value ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+}
+
+function readCosmetics(): Cosmetics {
+  try {
+    const raw = localStorage.getItem(COSMETICS_KEY);
+    if (!raw) return DEFAULT_COSMETICS;
+    const parsed = JSON.parse(raw) as Partial<Cosmetics>;
+    const characterId = CHARACTERS.some((c) => c.id === parsed.characterId)
+      ? (parsed.characterId as string)
+      : DEFAULT_COSMETICS.characterId;
+    const boardId = BOARDS.some((b) => b.id === parsed.boardId)
+      ? (parsed.boardId as string)
+      : DEFAULT_COSMETICS.boardId;
+    const stance: StanceVariant =
+      parsed.stance === 'goofy' ? 'goofy' : 'regular';
+    return { characterId, boardId, stance };
+  } catch {
+    return DEFAULT_COSMETICS;
+  }
+}
+
+function writeCosmetics(value: Cosmetics): void {
+  try {
+    localStorage.setItem(COSMETICS_KEY, JSON.stringify(value));
   } catch {
     // ignore
   }
@@ -51,6 +86,11 @@ export default function App() {
   const [showMenuButton, setShowMenuButton] = useState<boolean>(
     () => readBool(SHOW_MENU_BUTTON_KEY, false),
   );
+  const [cosmetics, setCosmetics] = useState<Cosmetics>(() => readCosmetics());
+
+  useEffect(() => {
+    writeCosmetics(cosmetics);
+  }, [cosmetics]);
 
   useEffect(() => {
     writeBool(ADVANCED_OPTIONS_KEY, showAdvancedOptions);
@@ -92,6 +132,8 @@ export default function App() {
         onChangeShowHotkeys={setShowHotkeys}
         showMenuButton={showMenuButton}
         onChangeShowMenuButton={setShowMenuButton}
+        cosmetics={cosmetics}
+        onChangeCosmetics={setCosmetics}
       />
     );
   }
@@ -103,6 +145,7 @@ export default function App() {
       showAdvancedOptions={showAdvancedOptions}
       autoStand={autoStand}
       showMenuButton={showMenuButton}
+      cosmetics={cosmetics}
     />
   );
 }
