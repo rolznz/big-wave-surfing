@@ -10,11 +10,24 @@ import {
   MISSED_BY, SHORE_Z_OFFSET,
   SURFER_START_X, SURFER_START_Z,
   POPUP_MIN_SPEED,
-  BOARD_LIFT, TRAIL_LIFT,
+  BOARD_LIFT, PRONE_BOARD_LIFT, TRAIL_LIFT,
   TRAIL_DURATION, TRAIL_SEGMENTS, TRAIL_MAX_SPEED,
   TRAIL_HALF_WIDTH, TRAIL_SLICE_DIST,
   CAMERA_FIXED, CAMERA_CHASE, CAMERA_INTRO,
+  SCORE_TIME_REF_S,
+  NOTIF_AIR_MS, NOTIF_AIR_ROT_MS_BASE, NOTIF_AIR_ROT_MS_PER_STEP,
+  NOTIF_SCALE_AIR, NOTIF_SCALE_AIR_ROT_BASE, NOTIF_SCALE_AIR_ROT_STEP,
+  NOTIF_STAR_MS, NOTIF_SCALE_STAR,
+  TRICK_POINTS_AIR, TRICK_POINTS_AIR_360, TRICK_POINTS_AIR_540,
+  TRICK_POINTS_AIR_720, TRICK_POINTS_AIR_STEP_BEYOND_720,
 } from './constants';
+
+function airRotationPoints(step: number): number {
+  if (step === 2) return TRICK_POINTS_AIR_360;
+  if (step === 3) return TRICK_POINTS_AIR_540;
+  if (step === 4) return TRICK_POINTS_AIR_720;
+  return TRICK_POINTS_AIR_720 + (step - 4) * TRICK_POINTS_AIR_STEP_BEYOND_720;
+}
 import type { LevelConfig } from './levels';
 import { levelWaveAmp, levelWaveSpeed, levelBreakSpeed, levelWaveThickness, levelGoalX, levelMinStars } from './levels';
 import { mulberry32 } from './rng';
@@ -54,6 +67,7 @@ export interface GameStatus {
   starsTotal: number;
   starsRequired: number;
   starsMissed: number;   // uncollected stars the surfer has passed in X
+  trickScore: number;    // sum of trick points this run
   stats: RunStats;
 }
 
@@ -67,6 +81,28 @@ export interface LoopOptions {
   autoStand: { current: boolean };
   /** Optional: receives joystick-overlay state on touch drag. Called with null on touch end / cancel. */
   onTouchIndicator?: (state: TouchIndicatorState | null) => void;
+  /**
+   * Optional trick-event sink. Fires for pumps, carves, airs and rotational
+   * airs. `points` is 0 for informational notifications. `scale` is a visual
+   * size multiplier (1.0 = base): small for PUMP, larger for big airs.
+   */
+  onTrick?: (text: string, durationMs: number, points: number, scale: number) => void;
+}
+
+/**
+ * End-of-run score: `trickScore × (starsCollected / starsTotal) × (60 / rideTime)`,
+ * rounded. Stars factor is 1 when the level has no stars; rideTime is clamped
+ * away from 0.
+ */
+export function finalScore(
+  trickScore: number,
+  starsCollected: number,
+  starsTotal: number,
+  rideTime: number,
+): number {
+  const starFactor = starsTotal > 0 ? starsCollected / starsTotal : 1;
+  const timeFactor = SCORE_TIME_REF_S / Math.max(rideTime, 0.001);
+  return Math.round(trickScore * starFactor * timeFactor);
 }
 
 export type TouchMode = 'paddle' | 'brake';
@@ -172,7 +208,26 @@ export function createLoop(
     steerHoldT: 0,
     prevSteerDir: 0,
     prevSteerHoldT: 0,
+    carveHoldDir: 0,
+    carveHoldT: 0,
+    airRotationAccum: 0,
+    prevAirAngle: 0,
   };
+
+  // Trick score accumulator. Wraps `opts.onTrick` so the loop owns the running
+  // total while the consumer still gets the per-event callback. Passed only
+  // to the live stepSurfer — ghosts share physicsParams but step without
+  // onTrick so their replayed pumps/carves don't fire live notifications.
+  let trickScore = 0;
+  function fireTrick(text: string, durationMs: number, points: number, scale: number) {
+    trickScore += points;
+    opts.onTrick?.(text, durationMs, points, scale);
+  }
+
+  // Air-trick deferral: stepSurfer accumulates s.airRotationAccum during the
+  // flight, but the AIR / N° AIR notification only fires once we've confirmed
+  // the surfer landed AND didn't wipe out on the same tick. See the bottom
+  // of updatePhysics().
 
   // Stats (reset per run).
   let maxSpeed = 0;
@@ -464,8 +519,11 @@ export function createLoop(
       ? wrapPi(touchHeadingTarget - state.angle)
       : 0;
 
+    // Snapshot pre-step airborne so we can detect a clean landing this tick.
+    const wasAirborne = state.airborne;
+
     const physInput = buildPhysicsInput();
-    const { gradX, gradZ } = stepSurfer(state, physInput, dt, physicsParams);
+    const { gradX, gradZ } = stepSurfer(state, physInput, dt, physicsParams, fireTrick);
 
     // Stats
     const speedNow = Math.hypot(state.vx, state.vz);
@@ -516,7 +574,8 @@ export function createLoop(
     // 10. Obstacle collision → wipeout.
     const waveHHere = waveHeightAt(state.z, state.waveZ, state.x, state.breakX,
       peakAmp, sigmaFront, sigmaBack);
-    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + BOARD_LIFT;
+    const groundLift = state.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
+    const surferY = state.airborne ? state.airY + BOARD_LIFT : waveHHere + groundLift;
     if (obstacleSys.check(state.x, surferY, state.z, state.waveZ)) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
@@ -524,14 +583,32 @@ export function createLoop(
       return { gradX, gradZ };
     }
 
-    // 10b. Star pickup.
-    starSys.tryCollect(state.x, surferY, state.z, state.waveZ);
+    // 10b. Star pickup. On a collection, surface a "★ N/M" notification so
+    // the player can track progress without needing the top bar.
+    if (starSys.tryCollect(state.x, surferY, state.z, state.waveZ)) {
+      fireTrick(`★ ${starSys.collectedCount}/${starSys.total}`, NOTIF_STAR_MS, 0, NOTIF_SCALE_STAR);
+    }
 
     // 11. Wipeout check (whitewater overtakes surfer) — skipped while airborne.
     if (!state.airborne && waveHHere > WIPEOUT_HEIGHT && state.breakX > state.x + WIPEOUT_GRACE) {
       phase = 'wiped_out';
       updateRigTransform(rig, state, gradX, gradZ, physicsParams);
       ragdoll.activate(state, gradX, gradZ, physicsParams);
+      return { gradX, gradZ };
+    }
+
+    // 12. Deferred air trick — surfer just landed and survived all checks.
+    // Total rotation steps = |accumulated angle| / 180°.
+    if (wasAirborne && !state.airborne) {
+      const steps = Math.floor(Math.abs(state.airRotationAccum) / Math.PI);
+      if (steps >= 2) {
+        const degrees = steps * 180;
+        const dur   = NOTIF_AIR_ROT_MS_BASE + (steps - 2) * NOTIF_AIR_ROT_MS_PER_STEP;
+        const scale = NOTIF_SCALE_AIR_ROT_BASE + (steps - 2) * NOTIF_SCALE_AIR_ROT_STEP;
+        fireTrick(`${degrees} AIR!`, dur, airRotationPoints(steps), scale);
+      } else {
+        fireTrick('AIR!', NOTIF_AIR_MS, TRICK_POINTS_AIR, NOTIF_SCALE_AIR);
+      }
     }
 
     return { gradX, gradZ };
@@ -752,6 +829,7 @@ export function createLoop(
       starsTotal: starSys.total,
       starsRequired,
       starsMissed: starSys.missedCount(state.x),
+      trickScore,
       stats: { maxSpeed, avgSpeed, turns },
     });
     renderer.render(scene, camera);

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createScene } from '../game/createScene';
 import { createLoop, GameStatus, TouchIndicatorState } from '../game/loop';
 import { LevelConfig, LEVELS, levelGoalX } from '../game/levels';
-import HUD from './HUD';
+import { NOTIF_PADDLE_MS, NOTIF_SCALE_PADDLE } from '../game/constants';
+import HUD, { type NotificationState } from './HUD';
 import TouchIndicator from './TouchIndicator';
 
 interface Props {
@@ -11,7 +12,6 @@ interface Props {
   onExit: () => void;
   showAdvancedOptions: boolean;
   autoStand: boolean;
-  showHotkeys: boolean;
   showMenuButton: boolean;
 }
 
@@ -29,11 +29,12 @@ function initialStatus(level: LevelConfig): GameStatus {
     starsTotal: total,
     starsRequired: level.minStars ?? total,
     starsMissed: 0,
+    trickScore: 0,
     stats: { maxSpeed: 0, avgSpeed: 0, turns: 0 },
   };
 }
 
-export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, autoStand, showHotkeys, showMenuButton }: Props) {
+export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, autoStand, showMenuButton }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const toggleWireframeRef = useRef<() => boolean>(() => false);
   const autoStandRef = useRef<boolean>(autoStand);
@@ -42,6 +43,12 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
   const [status, setStatus] = useState<GameStatus>(() => initialStatus(level));
   const [wireframe, setWireframe] = useState(false);
   const [touchIndicator, setTouchIndicator] = useState<TouchIndicatorState | null>(null);
+  const [notifications, setNotifications] = useState<NotificationState[]>([]);
+
+  const notifIdRef = useRef(0);
+  // Pending expiry timers — cleared on retry/unmount so a stale timer can't
+  // remove a notification from the next run.
+  const notifTimersRef = useRef<number[]>([]);
 
   // Re-initialise status whenever level or runKey changes.
   useEffect(() => {
@@ -56,17 +63,41 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Fresh notification stream for each run/level.
+    notifTimersRef.current.forEach((t) => clearTimeout(t));
+    notifTimersRef.current = [];
+    setNotifications([]);
+
+    function showTrick(text: string, durationMs: number, points: number, scale: number) {
+      notifIdRef.current += 1;
+      const id = notifIdRef.current;
+      // Append newest at end of array; HUD renders with column-reverse so
+      // newest sits at the bottom and older notifications stack above it.
+      setNotifications((prev) => [...prev, { id, text, durationMs, points, scale }]);
+      const timer = window.setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== id));
+        notifTimersRef.current = notifTimersRef.current.filter((t) => t !== timer);
+      }, durationMs);
+      notifTimersRef.current.push(timer);
+    }
+
     const bs = createScene(canvas);
     const loop = createLoop(bs, setStatus, level, {
       autoStand: autoStandRef,
       onTouchIndicator: setTouchIndicator,
+      onTrick: showTrick,
     });
     toggleWireframeRef.current = loop.toggleWireframe;
+
+    // Kick off the run with the PADDLE! prompt.
+    showTrick('PADDLE!', NOTIF_PADDLE_MS, 0, NOTIF_SCALE_PADDLE);
 
     return () => {
       loop.stop();
       bs.dispose();
       setTouchIndicator(null);
+      notifTimersRef.current.forEach((t) => clearTimeout(t));
+      notifTimersRef.current = [];
     };
   }, [level, runKey]);
 
@@ -123,8 +154,8 @@ export default function Game({ level, onPickLevel, onExit, showAdvancedOptions, 
         level={level}
         wireframe={wireframe}
         showAdvancedOptions={showAdvancedOptions}
-        showHotkeys={showHotkeys}
         showMenuButton={showMenuButton}
+        notifications={notifications}
         onToggleWireframe={onToggleWireframe}
         onRetry={retry}
         onNextLevel={goNextLevel}

@@ -199,6 +199,10 @@ function makeInitialState(): SurferState {
     steerHoldT: 0,
     prevSteerDir: 0,
     prevSteerHoldT: 0,
+    carveHoldDir: 0,
+    carveHoldT: 0,
+    airRotationAccum: 0,
+    prevAirAngle: 0,
   };
 }
 

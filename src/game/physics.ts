@@ -5,11 +5,16 @@ import {
   PRONE_PHYSICS, STANDING_PHYSICS, FLAT_WATER_DRAG,
   BREAK_START_X, SURFER_X_LIMIT, WAVE_SPEED,
   LEAD_DRAG_THRESHOLD, LEAD_DRAG_GAIN,
-  BOARD_LIFT, RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
+  BOARD_LIFT, PRONE_BOARD_LIFT, RAIL_ENGAGEMENT_BASE, RAIL_ENGAGEMENT_GAIN,
   AIR_LAUNCH_MIN_SPEED, AIR_LAUNCH_MAX_ANGLE_DEG, AIR_LAUNCH_FRONT_OFFSET,
   AIR_LAUNCH_VY_FACTOR, AIR_LAUNCH_VY_MAX, AIR_LAUNCH_PEAK_WINDOW,
   AIR_GRAVITY, AIR_TURN_SPEED, AIR_REDIRECT_RATE, AIR_DRAG,
-  PUMP_IMPULSE, PUMP_MIN_HOLD_S,
+  AIR_PITCH_VY_REF, AIR_PITCH_MAX_RAD,
+  PUMP_IMPULSE, PUMP_MIN_HOLD_S, PUMP_MAX_NEUTRAL_GAP_S,
+  NOTIF_PUMP_MS, NOTIF_CARVE_MS,
+  NOTIF_SCALE_PUMP, NOTIF_SCALE_CARVE,
+  CARVE_LEAN_THRESHOLD, CARVE_MIN_FWD_SPEED, CARVE_MIN_HOLD_S,
+  TRICK_POINTS_PUMP, TRICK_POINTS_CARVE,
 } from './constants';
 import type { GamePhase, Stance } from './loop';
 
@@ -40,6 +45,14 @@ export interface SurferState {
   prevSteerDir: number;
   /** How long prevSteerDir was held when committed. */
   prevSteerHoldT: number;
+  /** Sign of the currently-held carve lean (-1, 0, +1). 0 = not in a carve. */
+  carveHoldDir: number;
+  /** Seconds the current carve has been held above CARVE_LEAN_THRESHOLD on this side. */
+  carveHoldT: number;
+  /** Cumulative angular delta (rad) since the current air launch. Unwrapped via wrapPi per frame. */
+  airRotationAccum: number;
+  /** s.angle sampled at the previous airborne frame, used to compute dAngle. */
+  prevAirAngle: number;
 }
 
 export interface PhysicsInput {
@@ -58,6 +71,16 @@ export interface PhysicsParams {
   sigmaFront: number;
   sigmaBack: number;
 }
+
+/**
+ * Called when a trick event fires. `points` is added to the run's trick
+ * score by the caller (loop.ts). `points === 0` means an informational
+ * notification (e.g. PADDLE!) that doesn't score. `scale` is a visual
+ * size multiplier (1.0 = base). Passed separately from `PhysicsParams` so
+ * ghost replays (which share `params` with the live loop) don't pollute the
+ * live HUD with replayed tricks.
+ */
+export type OnTrick = (text: string, durationMs: number, points: number, scale: number) => void;
 
 export interface StepResult {
   gradX: number;
@@ -83,6 +106,7 @@ export function stepSurfer(
   input: PhysicsInput,
   dt: number,
   params: PhysicsParams,
+  onTrick?: OnTrick,
 ): StepResult {
   const prevWaveZ = s.waveZ;
   s.rideTime += dt;
@@ -92,6 +116,13 @@ export function stepSurfer(
     // Heading: only keyboard left/right while airborne (touch is for surfing).
     if (input.left)  s.angle -= AIR_TURN_SPEED * dt;
     if (input.right) s.angle += AIR_TURN_SPEED * dt;
+
+    // Air rotation: accumulate unwrapped dAngle since takeoff. The actual
+    // AIR / N° AIR notification is deferred until landing (and only fired if
+    // the surfer survives the landing — wired in loop.ts), so wipeouts mid-
+    // or post-air don't reward the trick.
+    s.airRotationAccum += wrapPi(s.angle - s.prevAirAngle);
+    s.prevAirAngle = s.angle;
 
     const fwdX =  Math.sin(s.angle);
     const fwdZ = -Math.cos(s.angle);
@@ -170,29 +201,48 @@ export function stepSurfer(
 
   // 1b. Pump — a fast L↔R input flip after holding the previous direction
   // ≥ PUMP_MIN_HOLD_S fires a fixed forward impulse along the board's facing.
-  // prevSteerDir carries the previous direction's hold-credit across brief
-  // release gaps; the credit is consumed on use so each held press grants at
-  // most one pump.
+  // Only fires while standing, and only if the gap between releasing the
+  // previous direction and pressing the opposite one is ≤ PUMP_MAX_NEUTRAL_GAP_S.
+  // Beyond that gap the prior direction is treated as a stale unrelated turn.
   const newDir = input.left && !input.right ? -1
                : input.right && !input.left ?  1
                : 0;
   if (newDir === s.steerDir) {
     s.steerHoldT += dt;
-  } else {
-    if (s.steerDir !== 0) {
-      s.prevSteerDir   = s.steerDir;
-      s.prevSteerHoldT = s.steerHoldT;
+    // Expire a stale prior direction once we've been idle (or holding a non-
+    // flipping direction) for too long, so a much-later opposite press
+    // doesn't fire a pump.
+    if (s.prevSteerDir !== 0 && s.steerHoldT > PUMP_MAX_NEUTRAL_GAP_S) {
+      s.prevSteerDir   = 0;
+      s.prevSteerHoldT = 0;
     }
+  } else {
+    // Snapshot the just-released direction as the pump candidate. The
+    // current steerHoldT becomes the "neutral gap" measurement on the next
+    // tick(s) until a new press lands.
+    const releasedDir = s.steerDir;
+    const releasedHoldT = s.steerHoldT;
+    if (releasedDir !== 0) {
+      s.prevSteerDir   = releasedDir;
+      s.prevSteerHoldT = releasedHoldT;
+    }
+    // Neutral gap = time we spent at steerDir === 0 before this new press.
+    // When transitioning from a direction straight to its opposite without
+    // a neutral frame in between, releasedDir is non-zero and the gap is 0.
+    const neutralGap = releasedDir === 0 ? releasedHoldT : 0;
     if (
+      s.stance === 'standing' &&
       newDir !== 0 &&
       s.prevSteerDir !== 0 &&
       newDir !== s.prevSteerDir &&
-      s.prevSteerHoldT >= PUMP_MIN_HOLD_S
+      s.prevSteerHoldT >= PUMP_MIN_HOLD_S &&
+      neutralGap <= PUMP_MAX_NEUTRAL_GAP_S
     ) {
       s.vx += fwdX * PUMP_IMPULSE;
       s.vz += fwdZ * PUMP_IMPULSE;
       s.prevSteerDir   = 0;
       s.prevSteerHoldT = 0;
+      onTrick?.('PUMP!', NOTIF_PUMP_MS, TRICK_POINTS_PUMP, NOTIF_SCALE_PUMP);
     }
     s.steerDir   = newDir;
     s.steerHoldT = 0;
@@ -232,7 +282,7 @@ export function stepSurfer(
   s.vz += fwdZ * waveDrive * dt;
 
   // Lip carry
-  if (!input.down) {
+  if (!input.down && s.stance === 'standing') {
     const ratio = params.peakAmp > 0 ? waveHHere / params.peakAmp : 0;
     const lipCouple = ratio * ratio * ratio;
     const carryAccel = WAVE_SPEED * params.waveSpeedMul * lipCouple;
@@ -250,6 +300,35 @@ export function stepSurfer(
     const bleed = Math.min(latSpeed, gripRate * dt);
     s.vx -= (vLatX / latSpeed) * bleed;
     s.vz -= (vLatZ / latSpeed) * bleed;
+  }
+
+  // 4b. Carve detection — sustained lean while standing at speed accumulates
+  // hold time on the active side. With hysteresis: a lean past
+  // CARVE_LEAN_THRESHOLD enters/keeps a carve; the carve only ends once lean
+  // falls below half that threshold OR flips side. On end, CARVE! fires if
+  // held ≥ CARVE_MIN_HOLD_S, with points scaling linearly with hold time.
+  const right = vLatX * (-fwdZ) + vLatZ * fwdX;
+  const lean = right / 8;
+  const baseGate = s.stance === 'standing' && vDotFwd > CARVE_MIN_FWD_SPEED;
+  const sameSide = s.carveHoldDir !== 0 && Math.sign(lean) === s.carveHoldDir;
+  const aboveEntry = Math.abs(lean) > CARVE_LEAN_THRESHOLD;
+  const aboveExit  = Math.abs(lean) > CARVE_LEAN_THRESHOLD * 0.5;
+  const carving = baseGate && (aboveEntry || (sameSide && aboveExit));
+  const dir = carving ? (lean > 0 ? 1 : -1) : 0;
+
+  if (dir !== 0 && dir === s.carveHoldDir) {
+    s.carveHoldT += dt;
+  } else {
+    // Carve ended (released, flipped to opposite, or stance changed). Fire
+    // the prior carve if it cleared the minimum hold.
+    if (s.carveHoldDir !== 0 && s.carveHoldT >= CARVE_MIN_HOLD_S) {
+      const ratio = s.carveHoldT / CARVE_MIN_HOLD_S;
+      const points = Math.round(TRICK_POINTS_CARVE * ratio);
+      const scale  = Math.min(2.0, NOTIF_SCALE_CARVE + s.carveHoldT * 0.4);
+      onTrick?.('CARVE!', NOTIF_CARVE_MS, points, scale);
+    }
+    s.carveHoldDir = dir;
+    s.carveHoldT = 0;
   }
 
   // 5. Drag
@@ -317,6 +396,10 @@ export function stepSurfer(
       // wave — staying on the wave is the default; falling back has to
       // come from the player actively steering backward in flight.
       s.vz = Math.max(0, s.vz - params.waveSpeed);
+      // Reset rotation tracking for the new air. The AIR / N° AIR
+      // notification is fired by the loop on a clean landing — see loop.ts.
+      s.airRotationAccum = 0;
+      s.prevAirAngle = s.angle;
     }
   }
 
@@ -338,14 +421,18 @@ export function updateRigTransform(
   gradZ: number,
   params: PhysicsParams,
 ): void {
+  const lift = s.stance === 'prone' ? PRONE_BOARD_LIFT : BOARD_LIFT;
+
   if (s.airborne) {
     rig.position.set(s.x, s.airY + BOARD_LIFT, s.z);
 
-    // Heading-aligned forward, world-up for up; small pitch from airVY so the
-    // nose lifts going up and drops on descent.
+    // Heading-aligned forward, world-up for up; pitch from airVY so the nose
+    // lifts going up and drops on descent — pre-aligns with the wave face for
+    // landing. Tunable via AIR_PITCH_VY_REF / AIR_PITCH_MAX_RAD.
     const fwdX =  Math.sin(s.angle);
     const fwdZ = -Math.cos(s.angle);
-    const pitch = Math.max(-0.45, Math.min(0.45, s.airVY / AIR_LAUNCH_VY_MAX * 0.45));
+    const pitchRaw = (s.airVY / AIR_PITCH_VY_REF) * AIR_PITCH_MAX_RAD;
+    const pitch = Math.max(-AIR_PITCH_MAX_RAD, Math.min(AIR_PITCH_MAX_RAD, pitchRaw));
     const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
     // tangent (board +X, the nose) tilted up by `pitch` around the lateral axis.
     const tX = fwdX * cosP;
@@ -373,9 +460,9 @@ export function updateRigTransform(
   const waveH = waveHeightAt(s.z, s.waveZ, s.x, s.breakX, params.peakAmp, params.sigmaFront, params.sigmaBack);
 
   rig.position.set(
-    s.x + nX * BOARD_LIFT,
-    waveH + nY * BOARD_LIFT,
-    s.z + nZ * BOARD_LIFT,
+    s.x + nX * lift,
+    waveH + nY * lift,
+    s.z + nZ * lift,
   );
 
   const fwdX =  Math.sin(s.angle);

@@ -1,14 +1,24 @@
 import type { GameStatus, RunStats } from '../game/loop';
+import { finalScore } from '../game/loop';
 import type { LevelConfig } from '../game/levels';
-import { isTouchPrimary } from '../util/isTouchPrimary';
+import { NOTIF_MAX_SCALE } from '../game/constants';
+
+export interface NotificationState {
+  id: number;
+  text: string;
+  durationMs: number;
+  points: number;
+  /** Visual size multiplier (1.0 = base font size). */
+  scale: number;
+}
 
 interface Props {
   status: GameStatus;
   level: LevelConfig;
   wireframe: boolean;
   showAdvancedOptions: boolean;
-  showHotkeys: boolean;
   showMenuButton: boolean;
+  notifications: NotificationState[];
   onToggleWireframe: () => void;
   onRetry: () => void;
   onNextLevel: () => void;   // advance to next level (or return to menu if last)
@@ -41,17 +51,39 @@ const sub: React.CSSProperties = {
   opacity: 0.9,
 };
 
-const hint: React.CSSProperties = {
+const notifStack: React.CSSProperties = {
   position: 'fixed',
-  bottom: '2rem',
+  bottom: '10%',
   left: 0,
   right: 0,
-  textAlign: 'center',
-  fontSize: 'clamp(0.8rem, 2vw, 1rem)',
-  opacity: 0.7,
+  display: 'flex',
+  // column-reverse pins the newest (last-pushed) notification to the bottom
+  // and lets older notifications stack upward.
+  flexDirection: 'column-reverse',
+  alignItems: 'center',
+  gap: '0.35em',
   pointerEvents: 'none',
-  color: '#fff',
-  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+};
+
+function notifText(scale: number): React.CSSProperties {
+  return {
+    textAlign: 'center',
+    fontFamily: "'Segoe UI', system-ui, sans-serif",
+    fontSize: `clamp(${(28 * scale).toFixed(1)}px, ${(6 * scale).toFixed(2)}vw, ${(64 * scale).toFixed(1)}px)`,
+    fontWeight: 800,
+    letterSpacing: '0.05em',
+    color: '#fff',
+    textShadow: '0 2px 16px rgba(0,0,0,0.55), 0 0 2px rgba(0,0,0,0.9)',
+    lineHeight: 1,
+  };
+}
+
+const notifPoints: React.CSSProperties = {
+  marginLeft: '0.5em',
+  fontSize: '0.7em',
+  fontWeight: 700,
+  color: '#ffe14a',
+  textShadow: '0 2px 10px rgba(0,0,0,0.6), 0 0 2px rgba(0,0,0,0.9)',
 };
 
 const scoreHud: React.CSSProperties = {
@@ -159,20 +191,61 @@ const missedWarning: React.CSSProperties = {
 const PULSE_KEYFRAMES = `@keyframes bws-pulse {
   0%, 100% { opacity: 0.7; transform: translateY(-50%) scale(1); }
   50%      { opacity: 1;   transform: translateY(-50%) scale(1.06); }
+}
+@keyframes bws-notif-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
+  60%  { opacity: 1; transform: translateY(0)   scale(1.04); }
+  100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes bws-notif-out {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
 }`;
+
+function NotificationItem({ notification }: { notification: NotificationState }) {
+  const fadeMs = Math.min(800, Math.max(250, notification.durationMs * 0.35));
+  const holdMs = Math.max(0, notification.durationMs - fadeMs);
+  const scale = Math.min(notification.scale, NOTIF_MAX_SCALE);
+  return (
+    <div
+      style={{
+        ...notifText(scale),
+        animation: `bws-notif-in 280ms ease-out both, bws-notif-out ${fadeMs}ms ${holdMs}ms ease-in forwards`,
+      }}
+    >
+      {notification.text}
+      {notification.points > 0 && (
+        <span style={notifPoints}>+{notification.points}</span>
+      )}
+    </div>
+  );
+}
+
+function NotificationStack({ notifications }: { notifications: NotificationState[] }) {
+  if (notifications.length === 0) return null;
+  return (
+    <div style={notifStack}>
+      {notifications.map((n) => (
+        <NotificationItem key={n.id} notification={n} />
+      ))}
+    </div>
+  );
+}
 
 // 1 game unit ≈ 0.3 m  (wave height 50 u ≈ 15 m real-world big wave)
 const UNITS_TO_MS = 0.3;
 
 function StatsPanel({
-  stats, rideTime, starsCollected, starsTotal, starsRequired,
+  stats, rideTime, starsCollected, starsTotal, starsRequired, trickScore,
 }: {
   stats: RunStats;
   rideTime: number;
   starsCollected: number;
   starsTotal: number;
   starsRequired: number;
+  trickScore: number;
 }) {
+  const score = finalScore(trickScore, starsCollected, starsTotal, rideTime);
   return (
     <div style={statsBox}>
       <div>Time: <strong>{rideTime.toFixed(2)} s</strong></div>
@@ -187,6 +260,10 @@ function StatsPanel({
           )}
         </div>
       )}
+      <div>Tricks: <strong>{trickScore}</strong></div>
+      <div style={{ marginTop: '0.4rem', fontSize: '1.15em' }}>
+        Score: <strong style={{ color: '#ffe14a' }}>{score}</strong>
+      </div>
     </div>
   );
 }
@@ -207,12 +284,13 @@ function StarCounter({
 }
 
 export default function HUD({
-  status, level, wireframe, showAdvancedOptions, showHotkeys, showMenuButton,
+  status, level, wireframe, showAdvancedOptions, showMenuButton,
+  notifications,
   onToggleWireframe,
   onRetry, onNextLevel, onExit, hasNextLevel,
 }: Props) {
   const {
-    phase, stance, rideTime, speed, progress, stats,
+    phase, rideTime, speed, progress, stats, trickScore,
     starsCollected, starsTotal, starsRequired, starsMissed,
   } = status;
   const speedMs = (speed * UNITS_TO_MS).toFixed(1);
@@ -226,51 +304,44 @@ export default function HUD({
             ★ {starsMissed} missed
           </div>
         )}
-        <div style={progressWrap}>
-          <div style={progressLabel}>
-            <span>{level.name}</span>
-            <span>{Math.round(progress * 100)}%</span>
-          </div>
-          <div style={progressTrack}>
-            <div style={progressFill(progress)} />
-          </div>
-        </div>
-        <div style={scoreHud}>
-          {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s
-          {starsTotal > 0 && (
-            <>
-              &nbsp;·&nbsp;
-              <StarCounter
-                collected={starsCollected}
-                total={starsTotal}
-                required={starsRequired}
-              />
-            </>
-          )}
-        </div>
-        <div style={topRightStack}>
-          {showAdvancedOptions && (
-            <button type="button" style={topRightButton} onClick={onToggleWireframe}>
-              Wireframe: {wireframe ? 'ON' : 'OFF'}
-            </button>
-          )}
-          {showMenuButton && (
-            <button type="button" style={topRightButton} onClick={onExit}>
-              Menu
-            </button>
-          )}
-        </div>
-        {!isTouchPrimary && showHotkeys && (
-          <div style={hint}>
-            {stance === 'prone'
-              ? (showAdvancedOptions
-                  ? '↑ Paddle  ↓ Brake  ← → Steer  ␣ Stand up  C Camera  R Retry'
-                  : '↑ Paddle  ↓ Brake  ← → Steer')
-              : (showAdvancedOptions
-                  ? '↓ Brake  ← → Carve  ␣ Go prone  C Camera  R Retry'
-                  : '↓ Brake  ← → Carve')}
-          </div>
+        {showAdvancedOptions && (
+          <>
+            <div style={progressWrap}>
+              <div style={progressLabel}>
+                <span>{level.name}</span>
+                <span>{Math.round(progress * 100)}%</span>
+              </div>
+              <div style={progressTrack}>
+                <div style={progressFill(progress)} />
+              </div>
+            </div>
+            <div style={scoreHud}>
+              {rideTime.toFixed(1)} s &nbsp;·&nbsp; {speedMs} m/s
+              {starsTotal > 0 && (
+                <>
+                  &nbsp;·&nbsp;
+                  <StarCounter
+                    collected={starsCollected}
+                    total={starsTotal}
+                    required={starsRequired}
+                  />
+                </>
+              )}
+              &nbsp;·&nbsp; <span style={{ color: '#ffe14a', fontWeight: 600 }}>{trickScore} pts</span>
+            </div>
+            <div style={topRightStack}>
+              <button type="button" style={topRightButton} onClick={onToggleWireframe}>
+                Wireframe: {wireframe ? 'ON' : 'OFF'}
+              </button>
+              {showMenuButton && (
+                <button type="button" style={topRightButton} onClick={onExit}>
+                  Menu
+                </button>
+              )}
+            </div>
+          </>
         )}
+        <NotificationStack notifications={notifications} />
       </>
     );
   }
@@ -297,11 +368,6 @@ export default function HUD({
     primaryAction = hasNextLevel ? onNextLevel : onExit;
   }
 
-  const enterHint =
-    phase === 'completed'
-      ? (hasNextLevel ? 'Enter: next level · R: retry · Esc/M: menu' : 'Enter / Esc: menu · R: retry')
-      : 'Enter / R: retry · Esc / M: menu';
-
   return (
     <div style={overlay}>
       <div style={{ ...big, ...accent }}>{title}</div>
@@ -312,6 +378,7 @@ export default function HUD({
         starsCollected={starsCollected}
         starsTotal={starsTotal}
         starsRequired={starsRequired}
+        trickScore={trickScore}
       />
       <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', pointerEvents: 'auto' }}>
         <button type="button" style={topRightButton} onClick={primaryAction}>
@@ -326,11 +393,6 @@ export default function HUD({
           Menu
         </button>
       </div>
-      {!isTouchPrimary && showHotkeys && (
-        <div style={{ ...sub, marginTop: '1rem', opacity: 0.6 }}>
-          {enterHint}
-        </div>
-      )}
     </div>
   );
 }

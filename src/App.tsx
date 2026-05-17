@@ -46,10 +46,10 @@ export default function App() {
     () => readBool(AUTO_STAND_KEY, true),
   );
   const [showHotkeys, setShowHotkeys] = useState<boolean>(
-    () => readBool(SHOW_HOTKEYS_KEY, true),
+    () => readBool(SHOW_HOTKEYS_KEY, false),
   );
   const [showMenuButton, setShowMenuButton] = useState<boolean>(
-    () => readBool(SHOW_MENU_BUTTON_KEY, true),
+    () => readBool(SHOW_MENU_BUTTON_KEY, false),
   );
 
   useEffect(() => {
@@ -102,7 +102,6 @@ export default function App() {
       onExit={onExit}
       showAdvancedOptions={showAdvancedOptions}
       autoStand={autoStand}
-      showHotkeys={showHotkeys}
       showMenuButton={showMenuButton}
     />
   );

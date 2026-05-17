@@ -26,7 +26,7 @@ export const WIPEOUT_HEIGHT = 0.5;
 
 // Miss threshold: if the wave crest passes the surfer by more than this many
 // units (waveZ - surferZ), the wave is considered missed and the run ends.
-export const MISSED_BY      = 10;
+export const MISSED_BY      = 20;
 
 // Shore boundary: distance ahead of the wave (in +Z, the wave's motion
 // direction) where the sandy beach starts. If the surfer overruns the wave
@@ -46,8 +46,8 @@ export const WAVE_STRIP_OFFSET_Z   = -200;
 export const WAVE_STRIP_EDGE_TAPER = 20;
 
 // ─── Surfer spawn / bounds ───────────────────────────────────────────────────
-export const SURFER_START_X = -190;
-export const SURFER_START_Z = -55;
+export const SURFER_START_X = -170;
+export const SURFER_START_Z = -30;
 export const SURFER_X_LIMIT = 1000;
 
 // ─── Stance physics profiles ─────────────────────────────────────────────────
@@ -76,7 +76,7 @@ export const STANDING_PHYSICS = {
 } as const;
 
 // Speed the surfer must be doing to stand up (can't stand on a still board)
-export const POPUP_MIN_SPEED = 15;
+export const POPUP_MIN_SPEED = 20;
 
 // ─── Air (off-the-back launch) ───────────────────────────────────────────────
 // Auto-triggers when a standing surfer crosses the crest from front to back at
@@ -96,6 +96,12 @@ export const AIR_LAUNCH_PEAK_WINDOW = 4;   // seconds: jump height uses max spee
 export const AIR_LAUNCH_VY_MAX    = 300;    // cap on launch upward velocity
 export const AIR_GRAVITY          = 30;    // units/sec² downward while airborne
 export const AIR_TURN_SPEED       = 7.5;   // rad/sec while airborne
+// Airborne rig pitch: rotates the deck around its lateral axis with airVY so
+// the nose lifts going up and drops on descent — preps for landing on the
+// wave's slope. pitch = clamp(airVY / AIR_PITCH_VY_REF, ±1) × AIR_PITCH_MAX_RAD.
+// Smaller REF / larger MAX = more dramatic lean.
+export const AIR_PITCH_VY_REF     = 10;   // airVY (units/s) at which pitch hits its cap
+export const AIR_PITCH_MAX_RAD    = 0.6;   // ~34° max pitch in either direction
 export const AIR_REDIRECT_RATE    = 5;     // per-second blend of velocity toward heading
 export const AIR_DRAG             = 0.05;   // mild horizontal damping in flight
 
@@ -113,8 +119,9 @@ export const LEAD_DRAG_THRESHOLD = 40;
 export const LEAD_DRAG_GAIN      = 1;
 
 // ─── Board / rig placement ───────────────────────────────────────────────────
-export const BOARD_LIFT = 0.2;   // offset along wave surface normal (keeps corners above water)
-export const TRAIL_LIFT = 0.08;  // wake trail hovers this much above the wave surface
+export const BOARD_LIFT = 0.2;          // standing: offset along wave surface normal (keeps corners above water)
+export const PRONE_BOARD_LIFT = -0.5;  // prone: paddler's weight sinks the board into the water
+export const TRAIL_LIFT = 0.08;         // wake trail hovers this much above the wave surface
 
 // ─── Rail engagement ─────────────────────────────────────────────────────────
 // Fraction by which the board's cross-slope roll is reduced (rail + fin grip
@@ -191,6 +198,59 @@ export const FOAM_PARALLAX = 0.1;
 // A pump fires when the steering input flips direction (left↔right) and the
 // previous direction was held for at least PUMP_MIN_HOLD_S. Each pump adds
 // PUMP_IMPULSE to the surfer's velocity along their facing direction.
-export const PUMP_IMPULSE     = 5;     // forward Δv on each rail-flip pump
+export const PUMP_IMPULSE     = 10;     // forward Δv on each rail-flip pump
 export const PUMP_MIN_HOLD_S  = 0.1;   // previous direction must have been held this long
+// Max idle time between releasing the previous direction and pressing the
+// opposite one. Beyond this the prior direction is "stale" and a pump
+// won't fire — distinguishes a deliberate rail-flip from two unrelated turns.
+export const PUMP_MAX_NEUTRAL_GAP_S = 0.3;
+
+// ─── Trick notifications ─────────────────────────────────────────────────────
+// On-screen dwell time per trick notification (ms). Shorter = snappier.
+export const NOTIF_PADDLE_MS         = 3500;
+export const NOTIF_PUMP_MS           = 1000;
+export const NOTIF_CARVE_MS          = 1500;
+export const NOTIF_AIR_MS            = 2000;
+export const NOTIF_STAR_MS           = 1500;
+// Rotational airs (360+) start at this base duration and lengthen by
+// NOTIF_AIR_ROT_MS_PER_STEP for each extra 180° beyond 360°.
+export const NOTIF_AIR_ROT_MS_BASE    = 2000;
+export const NOTIF_AIR_ROT_MS_PER_STEP = 500;
+
+// Visual scale (1.0 = base font size). PUMP is tiny; airs scale up with
+// rotation count so bigger tricks read as visually bigger.
+export const NOTIF_SCALE_PADDLE        = 1.1;
+export const NOTIF_SCALE_PUMP          = 0.45;
+export const NOTIF_SCALE_CARVE         = 0.85;
+export const NOTIF_SCALE_AIR           = 1.3;
+export const NOTIF_SCALE_STAR          = 0.85;
+export const NOTIF_SCALE_AIR_ROT_BASE  = 1.6;   // 360° air
+export const NOTIF_SCALE_AIR_ROT_STEP  = 0.25;  // per extra 180°
+// Hard cap on notification visual scale at render time. Source-side scales
+// (carve/air rotations) can compute higher values; the HUD clamps to this
+// so big-trick text doesn't dominate the screen.
+export const NOTIF_MAX_SCALE           = 1.5;
+
+// Carve detection. lean = (lateral velocity right-component) / 8 matches the
+// scale used by the existing carve pose. Surfer must be standing, moving
+// forward at ≥ CARVE_MIN_FWD_SPEED, leaning past CARVE_LEAN_THRESHOLD.
+// Time held above the threshold (same side) accumulates; on release (drops
+// below or flips side) we fire CARVE! only if held for at least
+// CARVE_MIN_HOLD_S. Points scale linearly with the final hold time.
+export const CARVE_LEAN_THRESHOLD = 0.5;
+export const CARVE_MIN_FWD_SPEED  = 8;
+export const CARVE_MIN_HOLD_S     = 0.4;
+
+// ─── Scoring ─────────────────────────────────────────────────────────────────
+// Per-trick point values. Final score at end of run:
+//   round(trickScore × (starsCollected / starsTotal) × (SCORE_TIME_REF_S / rideTime))
+// starsTotal == 0 → star factor is treated as 1.
+export const TRICK_POINTS_PUMP                  = 10;
+export const TRICK_POINTS_CARVE                 = 25;
+export const TRICK_POINTS_AIR                   = 100;
+export const TRICK_POINTS_AIR_360               = 300;
+export const TRICK_POINTS_AIR_540               = 600;
+export const TRICK_POINTS_AIR_720               = 1000;
+export const TRICK_POINTS_AIR_STEP_BEYOND_720   = 500;
+export const SCORE_TIME_REF_S                   = 60;
 
